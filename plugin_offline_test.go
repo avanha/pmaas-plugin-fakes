@@ -5,6 +5,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/avanha/pmaas-plugin-fakes/config"
 	"github.com/avanha/pmaas-plugin-fakes/internal/common"
 	"github.com/avanha/pmaas-spi/alert"
 	"github.com/avanha/pmaas-spi/clock"
@@ -140,5 +141,18 @@ func TestOfflineAlert_ListensForTheClockWhileRunningAndNotAfter(t *testing.T) {
 
 	if f.container.receiver != nil || len(f.container.receiversDeregistered) != 1 {
 		t.Errorf("still listening: %v", f.container.receiversDeregistered)
+	}
+}
+
+func TestOfflineAlert_ASensorKeptOfflineAcrossARestartAlertsOnceItIsBackUp(t *testing.T) {
+	persisted := &config.PersistentConfigV1{DoorSensors: map[string]config.DoorSensorStateV1{
+		"Garage door": {HasData: true, Position: "closed", Offline: true, OfflineSince: epoch.Add(-time.Hour)},
+	}}
+	f := newFixture(t, persisted)
+	f.door.AlertWhenOffline(alert.WhenOffline(5*time.Minute, nil))
+	f.start()
+
+	if raised, _ := alertEvents(f.container.broadcastsOf()); len(raised) != 1 {
+		t.Errorf("raised %+v", raised)
 	}
 }
