@@ -1,10 +1,10 @@
-class FakeSwitches {
+class FakeDevices {
     constructor(doc) {
         this.doc = doc;
     }
 
     init = () => {
-        const root = this.doc.querySelector("div.entity-fakes-switches");
+        const root = this.doc.querySelector("div.entity-fakes-devices");
 
         if (!root) {
             return false;
@@ -18,7 +18,7 @@ class FakeSwitches {
     }
 
     act = async (button) => {
-        const card = button.closest(".fake-switch");
+        const card = button.closest(".fake-device");
         const errorElement = card.querySelector(".action-error");
         const action = button.dataset.action;
         errorElement.textContent = "";
@@ -28,6 +28,10 @@ class FakeSwitches {
 
         if (action === "fail-next") {
             body.Count = parseInt(card.querySelector("input.fail-count").value, 10) || 0;
+        } else if (action === "set-temperature") {
+            body.Value = parseFloat(card.querySelector("input.temperature").value);
+        } else if (action === "adjust-temperature") {
+            body.Value = parseFloat(button.dataset.delta);
         }
 
         try {
@@ -54,4 +58,4 @@ class FakeSwitches {
     }
 }
 
-new FakeSwitches(document).init();
+new FakeDevices(document).init();

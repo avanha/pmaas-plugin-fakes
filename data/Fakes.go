@@ -3,9 +3,24 @@ package data
 
 import "time"
 
-// Switches is everything the page shows.
-type Switches struct {
-	Items []Switch
+// Fakes is everything the page shows.
+type Fakes struct {
+	Switches     []Switch
+	Thermometers []Thermometer
+}
+
+// Thermometer is one fake thermometer as it stands.
+type Thermometer struct {
+	Name string
+
+	// HasData is that it has ever reported. Fahrenheit and Celsius are what it reads, and Reported is when it last
+	// reported, which a thermometer that has stopped reporting leaves behind.
+	HasData    bool
+	Fahrenheit float32
+	Celsius    float32
+	Reported   time.Time
+
+	StopReporting bool
 }
 
 // Switch is one fake switch as it stands.

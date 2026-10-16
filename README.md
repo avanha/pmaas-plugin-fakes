@@ -28,6 +28,17 @@ It behaves as a device does, not as an idealised one:
 - Everything about it, including the settings above and the command history, is **kept across restarts** with the
   server's persistent configuration.
 
+## A fake thermometer
+
+```go
+room := conf.AddThermometer("Room") // an environment.IWirelessThermometer, which is what the real ones are
+```
+
+It starts at 72°F and, like a real sensor, reports what it reads regularly, so the reading stays fresh. The page sets
+its temperature (in °F, exactly or by a degree up or down), which PMAAS sees as a temperature change, and can make it
+**stop reporting**, so that its last reading gets older: for testing what an automation does when it can't trust a
+reading. The temperature and whether it is reporting are kept across restarts.
+
 ## Fakes for unit tests
 
 The `fake` package has plain Go fakes that need no server, for testing code that takes a `device.ISwitch`:
@@ -36,4 +47,7 @@ The `fake` package has plain Go fakes that need no server, for testing code that
 plug := fake.NewSwitch("Porch light", device.SwitchStateOff)
 plug.FailWith(errors.New("offline")) // later commands fail
 plug.Commands()                      // everything it was sent
+
+room := fake.NewThermometer("Room", 22.5)     // degrees Celsius, as entities report them
+room.SetReading(30, time.Now().Add(-time.Hour)) // a reading that is an hour old
 ```

@@ -18,27 +18,27 @@ import (
 //go:embed content/static content/templates
 var contentFS embed.FS
 
-var switchesTemplate = spi.TemplateInfo{
-	Name: "fakes_switches",
+var devicesTemplate = spi.TemplateInfo{
+	Name: "fakes_devices",
 	FuncMap: template.FuncMap{
 		"RelativeTime": relativeTime,
 	},
-	Paths:   []string{"templates/fakes_switches.htmlt"},
-	Styles:  []string{"css/fakes_switches.css"},
-	Scripts: []string{"js/fakes_switches.js"},
+	Paths:   []string{"templates/fakes_devices.htmlt"},
+	Styles:  []string{"css/fakes_devices.css"},
+	Scripts: []string{"js/fakes_devices.js"},
 }
 
 // Handler owns the plugin's HTTP surface: the page that shows the fakes, and the route that changes them.
 type Handler struct {
 	container spi.IPMAASContainer
-	store     common.SwitchStore
+	store     common.FakeStore
 }
 
 func NewHandler() *Handler {
 	return &Handler{}
 }
 
-func (h *Handler) Init(container spi.IPMAASContainer, store common.SwitchStore) {
+func (h *Handler) Init(container spi.IPMAASContainer, store common.FakeStore) {
 	h.container = container
 	h.store = store
 
@@ -53,25 +53,29 @@ func (h *Handler) Init(container spi.IPMAASContainer, store common.SwitchStore) 
 		func() any { return &controlRequest{} },
 		h.handleHttpControlRequest)
 	container.RegisterEntityRenderer(
-		reflect.TypeOf((*data.Switches)(nil)).Elem(),
-		h.switchesRendererFactory)
+		reflect.TypeOf((*data.Fakes)(nil)).Elem(),
+		h.devicesRendererFactory)
 }
 
 func (h *Handler) handleHttpListRequest(w http.ResponseWriter, r *http.Request) {
-	switches, err := h.store.GetSwitches()
+	fakes, err := h.store.GetFakes()
 
 	if err != nil {
 		fmt.Printf("fakes.http handleHttpListRequest: unable to retrieve the fakes: %v\n", err)
-		switches = data.Switches{}
+		fakes = data.Fakes{}
 	}
 
-	h.container.RenderList(w, r, spi.RenderListOptions{Title: "Fakes"}, []any{&switches})
+	h.container.RenderList(w, r, spi.RenderListOptions{Title: "Fakes"}, []any{&fakes})
 }
 
 type controlRequest struct {
 	Name   string
 	Action string
-	Count  int
+
+	// Count is for the actions that take a whole number, and Value, in degrees Fahrenheit, for those that take a
+	// temperature.
+	Count int
+	Value float64
 }
 
 type controlResponse struct {
@@ -89,7 +93,7 @@ func (h *Handler) handleHttpControlRequest(_ http.ResponseWriter, r *http.Reques
 		return nil, errors.New("a name and an action are required")
 	}
 
-	if err := h.store.Do(body.Name, common.Action(body.Action), body.Count); err != nil {
+	if err := h.store.Do(body.Name, common.Action(body.Action), body.Count, body.Value); err != nil {
 		// What is wrong with the request is for the person who made it, who needs to know. Anything else is not.
 		var refused *common.RequestError
 		if errors.As(err, &refused) {
@@ -104,22 +108,22 @@ func (h *Handler) handleHttpControlRequest(_ http.ResponseWriter, r *http.Reques
 	return controlResponse{OK: true}, nil
 }
 
-func (h *Handler) switchesRendererFactory() (spi.EntityRenderer, error) {
-	compiledTemplate, err := h.container.GetTemplate(&switchesTemplate)
+func (h *Handler) devicesRendererFactory() (spi.EntityRenderer, error) {
+	compiledTemplate, err := h.container.GetTemplate(&devicesTemplate)
 
 	if err != nil {
-		return spi.EntityRenderer{}, fmt.Errorf("unable to load fakes_switches template: %v", err)
+		return spi.EntityRenderer{}, fmt.Errorf("unable to load fakes_devices template: %v", err)
 	}
 
 	renderer := func(w io.Writer, entity any) error {
-		switches, ok := entity.(*data.Switches)
+		fakes, ok := entity.(*data.Fakes)
 
 		if !ok {
-			return errors.New("item is not an instance of *Switches")
+			return errors.New("item is not an instance of *Fakes")
 		}
 
-		if err := compiledTemplate.Instance.Execute(w, switches); err != nil {
-			return fmt.Errorf("unable to execute fakes_switches template: %w", err)
+		if err := compiledTemplate.Instance.Execute(w, fakes); err != nil {
+			return fmt.Errorf("unable to execute fakes_devices template: %w", err)
 		}
 
 		return nil

@@ -1,10 +1,11 @@
-<div class="entity-fakes-switches">
+<div class="entity-fakes-devices">
     <div class="note">Fake devices, for testing. What PMAAS asks of them is shown here, and they can be changed here as the real thing could be.</div>
-    {{if .Items}}
-        {{range .Items}}
-            <div class="fake-switch{{if .Offline}} offline{{end}}" data-name="{{.Name | html}}">
+    {{if or .Switches .Thermometers}}
+        {{range .Switches}}
+            <div class="fake-device fake-switch{{if .Offline}} offline{{end}}" data-name="{{.Name | html}}">
                 <div class="fake-header">
                     <span class="name">{{.Name | html}}</span>
+                    <span class="kind">switch</span>
                     <span class="state-badge {{.StateClass | html}}">{{.State | html}}</span>
                     {{if .Offline}}<span class="offline-badge">Offline</span>{{end}}
                 </div>
@@ -51,6 +52,38 @@
                         {{end}}
                     {{else}}
                         <div class="none">None</div>
+                    {{end}}
+                </div>
+                <div class="action-error"></div>
+            </div>
+        {{end}}
+        {{range .Thermometers}}
+            <div class="fake-device fake-thermometer{{if .StopReporting}} stale{{end}}" data-name="{{.Name | html}}">
+                <div class="fake-header">
+                    <span class="name">{{.Name | html}}</span>
+                    <span class="kind">thermometer</span>
+                    {{if .HasData}}
+                        <span class="reading">{{printf "%.1f" .Fahrenheit}}°F ({{printf "%.1f" .Celsius}}°C)</span>
+                    {{else}}
+                        <span class="reading">no reading</span>
+                    {{end}}
+                    {{if .StopReporting}}<span class="offline-badge">Not reporting</span>{{end}}
+                </div>
+                <div class="details">
+                    <div>
+                        <span class="label">Last reported</span>
+                        {{RelativeTime .Reported}}
+                    </div>
+                </div>
+                <div class="actions">
+                    <label>Set to <input class="temperature" type="number" step="0.1" min="-100" max="250" value="{{printf "%.1f" .Fahrenheit}}" {{if .StopReporting}}disabled{{end}}>°F</label>
+                    <button class="fake-button" data-action="set-temperature" {{if .StopReporting}}disabled{{end}}>Set</button>
+                    <button class="fake-button" data-action="adjust-temperature" data-delta="-1" {{if .StopReporting}}disabled{{end}}>-1°F</button>
+                    <button class="fake-button" data-action="adjust-temperature" data-delta="1" {{if .StopReporting}}disabled{{end}}>+1°F</button>
+                    {{if .StopReporting}}
+                        <button class="fake-button" data-action="resume-reporting">Resume reporting</button>
+                    {{else}}
+                        <button class="fake-button" data-action="stop-reporting">Stop reporting</button>
                     {{end}}
                 </div>
                 <div class="action-error"></div>

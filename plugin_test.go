@@ -36,6 +36,10 @@ type fakeContainer struct {
 	persisted     *config.PersistentConfigV1
 	serverBatches [][]func()
 
+	// holdEnqueue, when set, stops EnqueueOnPluginGoRoutine until it is closed, and entered is told when a caller is held.
+	holdEnqueue chan struct{}
+	entered     chan struct{}
+
 	routes        map[string]*spi.HttpHandlerOptions
 	jsonRoutes    []string
 	rendererTypes []reflect.Type
@@ -66,6 +70,20 @@ func newFakeContainer(t *testing.T) *fakeContainer {
 }
 
 func (c *fakeContainer) EnqueueOnPluginGoRoutine(f func()) error {
+	c.mu.Lock()
+	hold, entered := c.holdEnqueue, c.entered
+	c.mu.Unlock()
+
+	// A test can hold callers here, to have a goroutine caught in the middle of one.
+	if hold != nil {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+
+		<-hold
+	}
+
 	c.work <- f
 
 	return nil
@@ -205,6 +223,7 @@ type fixture struct {
 	container *fakeContainer
 	plugin    *plugin
 	handle    *SwitchHandle
+	thermo    *ThermometerHandle
 	clock     time.Time
 }
 
@@ -216,6 +235,7 @@ func newFixture(t *testing.T, persisted *config.PersistentConfigV1) *fixture {
 
 	conf := NewPluginConfig()
 	f.handle = conf.AddSwitch("Porch")
+	f.thermo = conf.AddThermometer("Room")
 
 	f.plugin = NewPlugin(conf).(*plugin)
 	f.plugin.now = func() time.Time { return f.clock }
@@ -240,7 +260,7 @@ func (f *fixture) do(action common.Action, count int) error {
 
 	var err error
 
-	f.container.onPluginGoroutine(func() { err = f.plugin.do("Porch", action, count) })
+	f.container.onPluginGoroutine(func() { err = f.plugin.do("Porch", action, count, 0) })
 
 	return err
 }
@@ -298,7 +318,7 @@ func TestStart_RegistersTheSwitchAsAnEntityWithAStateOfItsOwn(t *testing.T) {
 	f := newFixture(t, nil)
 	f.start()
 
-	if len(f.container.registrations) != 1 {
+	if len(f.container.registrations) != 2 {
 		t.Fatalf("registrations: %+v", f.container.registrations)
 	}
 
@@ -343,7 +363,7 @@ func TestHandle_IsASwitchBeforeThePluginHasStartedAndAfterItHasStopped(t *testin
 
 	f.container.onPluginGoroutine(func() { <-f.plugin.Stop() })
 
-	if !reflect.DeepEqual(f.container.deregistered, []string{"fakes_Porch"}) {
+	if !reflect.DeepEqual(f.container.deregistered, []string{"fakes_Porch", "fakes_Room"}) {
 		t.Errorf("deregistered %v", f.container.deregistered)
 	}
 
@@ -699,7 +719,7 @@ func TestDo_RefusesWhatCanNotBeDone(t *testing.T) {
 
 	var err error
 
-	f.container.onPluginGoroutine(func() { err = f.plugin.do("Nowhere", common.ActionOffline, 0) })
+	f.container.onPluginGoroutine(func() { err = f.plugin.do("Nowhere", common.ActionOffline, 0, 0) })
 
 	if !errors.As(err, &refused) {
 		t.Errorf("an unknown switch: %v", err)
@@ -764,16 +784,16 @@ func TestGetSwitches_ShowsTheStateWhatWasAskedAndTheSettings(t *testing.T) {
 	_ = f.handle.SetState(device.SwitchStateOff) // fails, once
 	_ = f.do(common.ActionOffline, 0)
 
-	shown, err := (&switchStoreAdapter{parent: f.plugin}).GetSwitches()
+	shown, err := (&fakeStoreAdapter{parent: f.plugin}).GetFakes()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(shown.Items) != 1 {
+	if len(shown.Switches) != 1 {
 		t.Fatalf("shown %+v", shown)
 	}
 
-	item := shown.Items[0]
+	item := shown.Switches[0]
 	if item.Name != "Porch" || item.State != "On" || item.StateClass != "on" || !item.Offline ||
 		item.Commanded != "On" || !item.CommandedAt.Equal(epoch.Add(time.Minute)) ||
 		!item.IgnoreCommands || item.FailNext != 1 || len(item.History) != 2 ||
@@ -786,9 +806,9 @@ func TestGetSwitches_NothingAskedYet(t *testing.T) {
 	f := newFixture(t, nil)
 	f.start()
 
-	shown, _ := (&switchStoreAdapter{parent: f.plugin}).GetSwitches()
-	if shown.Items[0].Commanded != "" || len(shown.Items[0].History) != 0 {
-		t.Errorf("item %+v", shown.Items[0])
+	shown, _ := (&fakeStoreAdapter{parent: f.plugin}).GetFakes()
+	if shown.Switches[0].Commanded != "" || len(shown.Switches[0].History) != 0 {
+		t.Errorf("item %+v", shown.Switches[0])
 	}
 }
 
@@ -796,9 +816,9 @@ func TestAdapter_DoReachesThePlugin(t *testing.T) {
 	f := newFixture(t, nil)
 	f.start()
 
-	adapter := &switchStoreAdapter{parent: f.plugin}
+	adapter := &fakeStoreAdapter{parent: f.plugin}
 
-	if err := adapter.Do("Porch", common.ActionReportOn, 0); err != nil {
+	if err := adapter.Do("Porch", common.ActionReportOn, 0, 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -807,7 +827,7 @@ func TestAdapter_DoReachesThePlugin(t *testing.T) {
 	}
 
 	var refused *common.RequestError
-	if err := adapter.Do("Nowhere", common.ActionReportOn, 0); !errors.As(err, &refused) {
+	if err := adapter.Do("Nowhere", common.ActionReportOn, 0, 0); !errors.As(err, &refused) {
 		t.Errorf("an unknown switch: %v", err)
 	}
 }

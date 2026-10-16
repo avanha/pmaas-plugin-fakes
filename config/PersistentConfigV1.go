@@ -6,7 +6,22 @@ import "time"
 // IPMAASContainer.SaveConfig/LoadConfig: what each fake is, as it was left, by its name. A fake that was
 // turned on by hand is still on after a restart, as a real one would be.
 type PersistentConfigV1 struct {
-	Switches map[string]SwitchStateV1
+	Switches     map[string]SwitchStateV1
+	Thermometers map[string]ThermometerStateV1
+}
+
+// ThermometerStateV1 is one fake thermometer as it was left.
+type ThermometerStateV1 struct {
+	HasData bool
+
+	// Celsius is what it read, in the unit entities report in.
+	Celsius float32
+
+	// StopReporting is that it was not reporting, so that what it read gets older, and LastUpdateTime is when it last
+	// did. A thermometer that is reporting has its time brought up to date when it starts, as a real one would on
+	// reconnecting.
+	StopReporting  bool
+	LastUpdateTime time.Time
 }
 
 // SwitchStateV1 is one fake switch as it was left.

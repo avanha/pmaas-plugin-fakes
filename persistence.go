@@ -94,3 +94,42 @@ func switchStateOf(word string) device.SwitchState {
 		return device.SwitchStateUnknown
 	}
 }
+
+// restoredThermometer is a fake thermometer the way it was left, or, if it never was (found is false), a new one
+// that reads 72°F. A thermometer that was reporting reports again as it starts, as a real one does on reconnecting; one
+// that had stopped is as stale as it was.
+func restoredThermometer(p *plugin, name string, saved config.ThermometerStateV1, found bool, now time.Time) *fakeThermometer {
+	t := &fakeThermometer{plugin: p, name: name}
+	t.data.Name = name
+
+	if !found {
+		t.data.SensorData = environment.SensorData{
+			HasData:        true,
+			Temperature:    fahrenheitToCelsius(newThermometerFahrenheit),
+			LastUpdateTime: now,
+		}
+
+		return t
+	}
+
+	t.stopReporting = saved.StopReporting
+	t.data.SensorData = environment.SensorData{
+		HasData:        saved.HasData,
+		Temperature:    saved.Celsius,
+		LastUpdateTime: saved.LastUpdateTime,
+	}
+
+	t.refresh()
+
+	return t
+}
+
+// persisted is the thermometer as it is kept.
+func (t *fakeThermometer) persisted() config.ThermometerStateV1 {
+	return config.ThermometerStateV1{
+		HasData:        t.data.SensorData.HasData,
+		Celsius:        t.data.SensorData.Temperature,
+		StopReporting:  t.stopReporting,
+		LastUpdateTime: t.data.SensorData.LastUpdateTime,
+	}
+}

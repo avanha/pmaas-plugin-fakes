@@ -30,15 +30,26 @@ const (
 
 	// ActionClearHistory forgets the commands it has been sent.
 	ActionClearHistory Action = "clear-history"
+
+	// ActionSetTemperature makes a thermometer read the value, in degrees Fahrenheit, and ActionAdjustTemperature
+	// changes what it reads by the value, which can be negative.
+	ActionSetTemperature    Action = "set-temperature"
+	ActionAdjustTemperature Action = "adjust-temperature"
+
+	// ActionStopReporting makes a thermometer stop reporting, as one whose battery has died does: what it last read
+	// stays, and gets older. ActionResumeReporting has it report again.
+	ActionStopReporting   Action = "stop-reporting"
+	ActionResumeReporting Action = "resume-reporting"
 )
 
-// SwitchStore is how internal/http reaches back into the plugin, which owns the fakes. It's implemented by the
+// FakeStore is how internal/http reaches back into the plugin, which owns the fakes. It's implemented by the
 // plugin's adapter, which crosses onto the plugin's own goroutine.
-type SwitchStore interface {
-	GetSwitches() (data.Switches, error)
+type FakeStore interface {
+	GetFakes() (data.Fakes, error)
 
-	// Do does something to the named switch.
-	Do(name string, action Action, count int) error
+	// Do does something to the named fake. Count is for the actions that take a whole number, and Value for those that
+	// take a number of degrees.
+	Do(name string, action Action, count int, value float64) error
 }
 
 // RequestError is that what was asked for can't be done, for a reason the person who asked can do something about:

@@ -1,9 +1,11 @@
 package fakes
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/avanha/pmaas-plugin-fakes/config"
@@ -15,6 +17,10 @@ import (
 	"github.com/avanha/pmaas-spi/device"
 	"github.com/avanha/pmaas-spi/environment"
 )
+
+// reportEvery is how often a fake thermometer that is reporting reports what it reads, as a real one does, so that its
+// reading doesn't go stale.
+const reportEvery = time.Minute
 
 type Plugin interface {
 	spi.IPMAASPlugin
@@ -28,17 +34,31 @@ type plugin struct {
 	httpHandler *httphandler.Handler
 
 	// Owned by the plugin goroutine, once it has started.
-	switches []*fakeSwitch
-	byName   map[string]*fakeSwitch
+	switches     []*fakeSwitch
+	thermometers []*fakeThermometer
+	switchByName map[string]*fakeSwitch
+	thermoByName map[string]*fakeThermometer
 
-	now func() time.Time
+	// reporting is the goroutine that has the thermometers report regularly.
+	cancelReporting context.CancelFunc
+	reportingWg     sync.WaitGroup
+
+	now         func() time.Time
+	reportEvery time.Duration
 }
 
 // Force implementation of spi.IPMAASPlugin
 var _ spi.IPMAASPlugin = (*plugin)(nil)
 
 func NewPlugin(config PluginConfig) Plugin {
-	return &plugin{config: config, httpHandler: httphandler.NewHandler(), byName: make(map[string]*fakeSwitch), now: time.Now}
+	return &plugin{
+		config:       config,
+		httpHandler:  httphandler.NewHandler(),
+		switchByName: make(map[string]*fakeSwitch),
+		thermoByName: make(map[string]*fakeThermometer),
+		now:          time.Now,
+		reportEvery:  reportEvery,
+	}
 }
 
 func (p *plugin) ShortName() string {
@@ -47,11 +67,12 @@ func (p *plugin) ShortName() string {
 
 func (p *plugin) Init(container spi.IPMAASContainer) {
 	p.container = container
-	p.httpHandler.Init(container, &switchStoreAdapter{parent: p})
+	p.httpHandler.Init(container, &fakeStoreAdapter{parent: p})
 }
 
 func (p *plugin) Start() {
-	fmt.Printf("%T Starting with %d fake switch(es)...\n", p, len(p.config.switches))
+	fmt.Printf("%T Starting with %d fake switch(es) and %d fake thermometer(s)...\n",
+		p, len(p.config.switches), len(p.config.thermometers))
 
 	persisted := p.loadPersistedState()
 
@@ -59,8 +80,15 @@ func (p *plugin) Start() {
 		p.startSwitch(handle, persisted.Switches[handle.name])
 	}
 
+	for _, handle := range p.config.thermometers {
+		saved, found := persisted.Thermometers[handle.name]
+		p.startThermometer(handle, saved, found)
+	}
+
 	// A fake that has never been run before is saved as it starts, so there is a file to look at.
 	p.persist()
+
+	p.startReporting()
 }
 
 // startSwitch makes a fake switch the way it was left, or new if it never was, and registers it.
@@ -77,7 +105,7 @@ func (p *plugin) startSwitch(handle *SwitchHandle, saved config.SwitchStateV1) {
 
 	s.id = id
 	p.switches = append(p.switches, s)
-	p.byName[handle.name] = s
+	p.switchByName[handle.name] = s
 
 	event := spicommon.StubAvailableEvent[device.ISwitch]{EntityEvent: s.entityEvent(), EntityStub: s.getStub(p.container)}
 	if err := handle.stub.Provide(p.container, event); err != nil {
@@ -85,17 +113,85 @@ func (p *plugin) startSwitch(handle *SwitchHandle, saved config.SwitchStateV1) {
 	}
 }
 
+// startThermometer makes a fake thermometer the way it was left, or new if it never was, and registers it.
+func (p *plugin) startThermometer(handle *ThermometerHandle, saved config.ThermometerStateV1, found bool) {
+	t := restoredThermometer(p, handle.name, saved, found, p.now())
+
+	id, err := p.container.RegisterEntity(
+		handle.name, thermometerType, handle.name,
+		func() (any, error) { return t.getStub(p.container), nil })
+	if err != nil {
+		fmt.Printf("%T unable to register the fake thermometer %q: %v\n", p, handle.name, err)
+		return
+	}
+
+	t.id = id
+	p.thermometers = append(p.thermometers, t)
+	p.thermoByName[handle.name] = t
+
+	event := spicommon.StubAvailableEvent[environment.IWirelessThermometer]{
+		EntityEvent: t.entityEvent(),
+		EntityStub:  t.getStub(p.container),
+	}
+	if err := handle.stub.Provide(p.container, event); err != nil {
+		fmt.Printf("%T %v\n", p, err)
+	}
+}
+
+// startReporting has the thermometers report regularly. Without it a reading would go stale even though nothing
+// was wrong, as it would with a real sensor that stopped talking.
+func (p *plugin) startReporting() {
+	if len(p.thermometers) == 0 {
+		return
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	p.cancelReporting = cancel
+
+	p.reportingWg.Go(func() {
+		ticker := time.NewTicker(p.reportEvery)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				// If the plugin has stopped there is nothing to report to, and the tick is dropped.
+				_ = p.container.EnqueueOnPluginGoRoutine(p.report)
+			}
+		}
+	})
+}
+
+// report has every thermometer that is reporting report. Runs on the plugin goroutine.
+func (p *plugin) report() {
+	for _, t := range p.thermometers {
+		t.refresh()
+	}
+}
+
 func (p *plugin) Stop() chan func() {
 	fmt.Printf("%T Stopping...\n", p)
 
-	handles := make(map[string]*SwitchHandle, len(p.config.switches))
+	if p.cancelReporting != nil {
+		p.cancelReporting()
+		p.cancelReporting = nil
+	}
+
+	switchHandles := make(map[string]*SwitchHandle, len(p.config.switches))
 	for _, handle := range p.config.switches {
-		handles[handle.name] = handle
+		switchHandles[handle.name] = handle
+	}
+
+	thermometerHandles := make(map[string]*ThermometerHandle, len(p.config.thermometers))
+	for _, handle := range p.config.thermometers {
+		thermometerHandles[handle.name] = handle
 	}
 
 	for _, s := range p.switches {
 		// Before the stub is closed, so that nobody is handed one that is no use.
-		handles[s.name].stub.Withdraw()
+		switchHandles[s.name].stub.Withdraw()
 
 		if err := p.container.DeregisterEntity(s.id); err != nil {
 			fmt.Printf("%T unable to deregister the fake switch %q: %v\n", p, s.name, err)
@@ -104,9 +200,30 @@ func (p *plugin) Stop() chan func() {
 		s.closeStub()
 	}
 
-	p.switches, p.byName = nil, make(map[string]*fakeSwitch)
+	for _, t := range p.thermometers {
+		thermometerHandles[t.name].stub.Withdraw()
 
-	return p.container.ClosedCallbackChannel()
+		if err := p.container.DeregisterEntity(t.id); err != nil {
+			fmt.Printf("%T unable to deregister the fake thermometer %q: %v\n", p, t.name, err)
+		}
+
+		t.closeStub()
+	}
+
+	p.switches, p.switchByName = nil, make(map[string]*fakeSwitch)
+	p.thermometers, p.thermoByName = nil, make(map[string]*fakeThermometer)
+
+	// The goroutine that has them report is told to stop above, and finishes promptly; wait for it away from here, which
+	// is the plugin's own goroutine.
+	done := make(chan func())
+
+	go func() {
+		defer close(done)
+
+		p.reportingWg.Wait()
+	}()
+
+	return done
 }
 
 func (p *plugin) broadcast(id string, event any) {
@@ -116,18 +233,24 @@ func (p *plugin) broadcast(id string, event any) {
 }
 
 // do does something to a fake from the page. Runs on the plugin goroutine.
-func (p *plugin) do(name string, action common.Action, count int) error {
-	s, ok := p.byName[name]
-	if !ok {
-		return common.Refuse("there is no fake switch %q", name)
+func (p *plugin) do(name string, action common.Action, count int, value float64) error {
+	if s, ok := p.switchByName[name]; ok {
+		return s.do(action, count)
 	}
 
-	return s.do(action, count)
+	if t, ok := p.thermoByName[name]; ok {
+		return t.do(action, value)
+	}
+
+	return common.Refuse("there is no fake %q", name)
 }
 
-// getSwitches builds what the page shows. Runs on the plugin goroutine.
-func (p *plugin) getSwitches() data.Switches {
-	result := data.Switches{Items: make([]data.Switch, len(p.switches))}
+// getFakes builds what the page shows. Runs on the plugin goroutine.
+func (p *plugin) getFakes() data.Fakes {
+	result := data.Fakes{
+		Switches:     make([]data.Switch, len(p.switches)),
+		Thermometers: make([]data.Thermometer, len(p.thermometers)),
+	}
 
 	for i, s := range p.switches {
 		view := data.Switch{
@@ -151,7 +274,20 @@ func (p *plugin) getSwitches() data.Switches {
 			view.History[j] = data.Command{At: c.at, State: c.state.String(), Accepted: c.accepted, Result: c.result}
 		}
 
-		result.Items[i] = view
+		result.Switches[i] = view
+	}
+
+	for i, t := range p.thermometers {
+		reading := t.data.SensorData
+
+		result.Thermometers[i] = data.Thermometer{
+			Name:          t.name,
+			HasData:       reading.HasData,
+			Fahrenheit:    float32(celsiusToFahrenheit(reading.Temperature)),
+			Celsius:       reading.Temperature,
+			Reported:      reading.LastUpdateTime,
+			StopReporting: t.stopReporting,
+		}
 	}
 
 	return result
@@ -159,10 +295,17 @@ func (p *plugin) getSwitches() data.Switches {
 
 // persist keeps the fakes as they are. Runs on the plugin goroutine.
 func (p *plugin) persist() {
-	persisted := config.PersistentConfigV1{Switches: make(map[string]config.SwitchStateV1, len(p.switches))}
+	persisted := config.PersistentConfigV1{
+		Switches:     make(map[string]config.SwitchStateV1, len(p.switches)),
+		Thermometers: make(map[string]config.ThermometerStateV1, len(p.thermometers)),
+	}
 
 	for _, s := range p.switches {
 		persisted.Switches[s.name] = s.persisted()
+	}
+
+	for _, t := range p.thermometers {
+		persisted.Thermometers[t.name] = t.persisted()
 	}
 
 	if err := p.container.SaveConfig(persisted); err != nil {
