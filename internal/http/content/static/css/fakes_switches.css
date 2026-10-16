@@ -1,0 +1,98 @@
+.entity-fakes-switches {
+    display: flex;
+    flex-flow: column;
+}
+
+.entity-fakes-switches .note,
+.entity-fakes-switches .none {
+    opacity: 0.75;
+    margin: 0 0 8px 0;
+}
+
+/* A fake is a card with a coloured edge: green when it is on, grey when off, and faded when it is off the network. */
+.entity-fakes-switches .fake-switch {
+    border: 1px solid #c8c8c8;
+    border-left-width: 5px;
+    border-left-color: #bbbbbb;
+    border-radius: 3px;
+    padding: 6px 8px;
+    margin: 0 0 8px 0;
+    overflow-wrap: anywhere;
+}
+
+.entity-fakes-switches .fake-switch.offline {
+    opacity: 0.7;
+    border-style: dashed;
+    border-left-style: solid;
+}
+
+.entity-fakes-switches .fake-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.entity-fakes-switches .name {
+    font-weight: bold;
+}
+
+.entity-fakes-switches .state-badge,
+.entity-fakes-switches .offline-badge {
+    font-size: 0.8em;
+    padding: 0 6px;
+    border-radius: 3px;
+    background: #bbbbbb;
+    color: #fff;
+}
+
+.entity-fakes-switches .state-badge.on {
+    background: #5cb85c;
+}
+
+.entity-fakes-switches .offline-badge {
+    background: #d9534f;
+}
+
+.entity-fakes-switches .details {
+    margin: 4px 0;
+}
+
+.entity-fakes-switches .details .label {
+    display: inline-block;
+    min-width: 8em;
+    opacity: 0.65;
+}
+
+.entity-fakes-switches .actions {
+    margin: 4px 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.entity-fakes-switches .actions .mode {
+    opacity: 0.75;
+}
+
+.entity-fakes-switches input.fail-count {
+    width: 4em;
+}
+
+.entity-fakes-switches .history {
+    margin-top: 6px;
+}
+
+.entity-fakes-switches .history-label {
+    opacity: 0.65;
+}
+
+.entity-fakes-switches .command.rejected {
+    color: #d9534f;
+}
+
+.entity-fakes-switches .action-error {
+    color: #d9534f;
+    margin-top: 4px;
+}

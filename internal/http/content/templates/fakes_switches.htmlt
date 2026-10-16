@@ -1,0 +1,62 @@
+<div class="entity-fakes-switches">
+    <div class="note">Fake devices, for testing. What PMAAS asks of them is shown here, and they can be changed here as the real thing could be.</div>
+    {{if .Items}}
+        {{range .Items}}
+            <div class="fake-switch{{if .Offline}} offline{{end}}" data-name="{{.Name | html}}">
+                <div class="fake-header">
+                    <span class="name">{{.Name | html}}</span>
+                    <span class="state-badge {{.StateClass | html}}">{{.State | html}}</span>
+                    {{if .Offline}}<span class="offline-badge">Offline</span>{{end}}
+                </div>
+                <div class="details">
+                    <div>
+                        <span class="label">Reported</span>
+                        {{.State | html}}{{if not .LastChangeTime.IsZero}}, changed {{RelativeTime .LastChangeTime}}{{end}}
+                    </div>
+                    <div>
+                        <span class="label">PMAAS asked for</span>
+                        {{if .Commanded}}{{.Commanded | html}} {{RelativeTime .CommandedAt}}{{else}}nothing yet{{end}}
+                    </div>
+                </div>
+                <div class="actions">
+                    <button class="fake-button" data-action="report-on" {{if .Offline}}disabled{{end}}>Press: on</button>
+                    <button class="fake-button" data-action="report-off" {{if .Offline}}disabled{{end}}>Press: off</button>
+                    {{if .Offline}}
+                        <button class="fake-button" data-action="online">Bring online</button>
+                    {{else}}
+                        <button class="fake-button" data-action="offline">Take offline</button>
+                    {{end}}
+                    {{if .IgnoreCommands}}
+                        <button class="fake-button" data-action="follow-commands">Act on commands</button>
+                    {{else}}
+                        <button class="fake-button" data-action="ignore-commands">Ignore commands</button>
+                    {{end}}
+                </div>
+                <div class="actions">
+                    <label>Fail the next <input class="fail-count" type="number" min="0" max="1000" value="{{.FailNext}}"> commands</label>
+                    <button class="fake-button" data-action="fail-next">Set</button>
+                    {{if .IgnoreCommands}}<span class="mode">accepts commands but does not act on them</span>{{end}}
+                </div>
+                <div class="history">
+                    <div class="history-label">
+                        Commands
+                        {{if .History}}<button class="fake-button small" data-action="clear-history">Clear</button>{{end}}
+                    </div>
+                    {{if .History}}
+                        {{range .History}}
+                            <div class="command{{if not .Accepted}} rejected{{end}}">
+                                {{.At.Format "3:04:05 PM"}} asked for {{.State | html}}:
+                                {{if .Accepted}}accepted{{else}}refused, {{.Result | html}}{{end}}
+                            </div>
+                        {{end}}
+                    {{else}}
+                        <div class="none">None</div>
+                    {{end}}
+                </div>
+                <div class="action-error"></div>
+            </div>
+        {{end}}
+    {{else}}
+        <div class="none">No fake devices are configured</div>
+    {{end}}
+</div>
