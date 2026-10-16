@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 
 	"github.com/avanha/pmaas-plugin-fakes/internal/common"
+	"github.com/avanha/pmaas-spi/alert"
 	spi "github.com/avanha/pmaas-spi"
 	spicommon "github.com/avanha/pmaas-spi/common"
 	"github.com/avanha/pmaas-spi/device"
@@ -22,6 +23,9 @@ type fakeDoorSensor struct {
 	id     string
 
 	data device.DoorSensor
+
+	// offlineWatch holds the alert about the sensor being offline, if one was asked for.
+	offlineWatch *alert.OfflineWatch
 
 	stub *doorStub
 }
@@ -78,6 +82,12 @@ func (d *fakeDoorSensor) setOffline(offline bool) {
 	}
 
 	d.plugin.broadcast(d.id, events.EntityStateChangedEvent{EntityEvent: d.entityEvent(), NewState: d.data})
+	d.checkOffline()
+}
+
+// checkOffline raises, escalates or clears the alert about the sensor being offline, if there is to be one.
+func (d *fakeDoorSensor) checkOffline() {
+	d.plugin.checkOffline(d.offlineWatch, d.data.Connectivity, d.data.OfflineSince)
 }
 
 // do does something to the sensor from the page.

@@ -13,6 +13,7 @@ import (
 	"github.com/avanha/pmaas-plugin-fakes/internal/common"
 	httphandler "github.com/avanha/pmaas-plugin-fakes/internal/http"
 	spi "github.com/avanha/pmaas-spi"
+	"github.com/avanha/pmaas-spi/alert"
 	spicommon "github.com/avanha/pmaas-spi/common"
 	"github.com/avanha/pmaas-spi/device"
 	"github.com/avanha/pmaas-spi/environment"
@@ -104,6 +105,7 @@ func (p *plugin) Start() {
 	p.persist()
 
 	p.startReporting()
+	p.checkOfflineAlerts()
 }
 
 // startSwitch makes a fake switch the way it was left, or new if it never was, and registers it.
@@ -119,6 +121,7 @@ func (p *plugin) startSwitch(handle *SwitchHandle, saved config.SwitchStateV1) {
 	}
 
 	s.id = id
+	s.offlineWatch = handle.offline.Watch(p.ShortName(), "offline:"+handle.name, handle.name)
 	p.switches = append(p.switches, s)
 	p.switchByName[handle.name] = s
 
@@ -166,6 +169,7 @@ func (p *plugin) startDoorSensor(handle *DoorSensorHandle, saved config.DoorSens
 	}
 
 	d.id = id
+	d.offlineWatch = handle.offline.Watch(p.ShortName(), "offline:"+handle.name, handle.name)
 	p.doorSensors = append(p.doorSensors, d)
 	p.doorByName[handle.name] = d
 
@@ -192,7 +196,7 @@ func (p *plugin) startHost(handle *HostHandle, saved config.HostStateV1) {
 // startReporting has the thermometers report regularly. Without it a reading would go stale even though nothing
 // was wrong, as it would with a real sensor that stopped talking.
 func (p *plugin) startReporting() {
-	if len(p.thermometers) == 0 {
+	if len(p.thermometers) == 0 && !p.watchingOffline() {
 		return
 	}
 
@@ -215,10 +219,48 @@ func (p *plugin) startReporting() {
 	})
 }
 
-// report has every thermometer that is reporting report. Runs on the plugin goroutine.
+// report has every thermometer that is reporting report, and looks again at the devices that are offline, since an alert
+// that waits for a time comes due without anything changing. Runs on the plugin goroutine.
 func (p *plugin) report() {
 	for _, t := range p.thermometers {
 		t.refresh()
+	}
+
+	p.checkOfflineAlerts()
+}
+
+// watchingOffline is whether any fake has an alert for going offline.
+func (p *plugin) watchingOffline() bool {
+	for _, s := range p.switches {
+		if s.offlineWatch != nil {
+			return true
+		}
+	}
+
+	for _, d := range p.doorSensors {
+		if d.offlineWatch != nil {
+			return true
+		}
+	}
+
+	return false
+}
+
+// checkOfflineAlerts looks at every fake that has an alert for going offline. Runs on the plugin goroutine.
+func (p *plugin) checkOfflineAlerts() {
+	for _, s := range p.switches {
+		s.checkOffline()
+	}
+
+	for _, d := range p.doorSensors {
+		d.checkOffline()
+	}
+}
+
+// checkOffline raises, escalates or clears one fake's alert about being offline. Runs on the plugin goroutine.
+func (p *plugin) checkOffline(watch *alert.OfflineWatch, connectivity environment.Connectivity, offlineSince time.Time) {
+	if err := watch.Check(p.container, connectivity, offlineSince, p.now()); err != nil {
+		fmt.Printf("%T unable to update an offline alert: %v\n", p, err)
 	}
 }
 

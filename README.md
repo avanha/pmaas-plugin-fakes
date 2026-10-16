@@ -49,6 +49,16 @@ It starts closed and online. The page opens and closes the door, which PMAAS see
 offline and brings it back: an offline sensor keeps the position it last reported, as a real one does, and can't report the
 door moving. Its position is kept across restarts.
 
+A switch or a door sensor can raise an alert when it goes offline, as a real device can (see `alert.WhenOffline` in
+pmaas-spi). It is off unless asked for:
+
+```go
+conf.AddDoorSensor("Garage door").AlertWhenOffline(alert.WhenOffline(5*time.Minute, alert.Always(alert.SeverityWarning)))
+```
+
+The alert is raised once the device has been offline for that long, and cleared when it is back. With no severity it is a
+warning, and a time of zero is as soon as it is noticed.
+
 ## A fake host
 
 ```go

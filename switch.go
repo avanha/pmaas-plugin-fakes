@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/avanha/pmaas-plugin-fakes/internal/common"
+	"github.com/avanha/pmaas-spi/alert"
 	spi "github.com/avanha/pmaas-spi"
 	spicommon "github.com/avanha/pmaas-spi/common"
 	"github.com/avanha/pmaas-spi/device"
@@ -39,6 +40,9 @@ type fakeSwitch struct {
 
 	// data is what the switch reports.
 	data device.Switch
+
+	// offlineWatch holds the alert about the device being offline, if one was asked for.
+	offlineWatch *alert.OfflineWatch
 
 	commanded   device.SwitchState
 	commandedAt time.Time
@@ -153,6 +157,12 @@ func (s *fakeSwitch) setOffline(offline bool) {
 		EntityEvent: s.entityEvent(),
 		NewState:    s.data,
 	})
+	s.checkOffline()
+}
+
+// checkOffline raises, escalates or clears the alert about the device being offline, if there is to be one.
+func (s *fakeSwitch) checkOffline() {
+	s.plugin.checkOffline(s.offlineWatch, s.data.Connectivity, s.data.OfflineSince)
 }
 
 // do does something to the device from the page.

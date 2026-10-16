@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync/atomic"
 
+	"github.com/avanha/pmaas-spi/alert"
 	spicommon "github.com/avanha/pmaas-spi/common"
 	"github.com/avanha/pmaas-spi/device"
 	"github.com/avanha/pmaas-spi/environment"
@@ -14,8 +15,9 @@ import (
 // does, and it works from the moment the plugin has started. Before then, and after the plugin stops, it answers as a
 // switch that has not reported anything, and refuses commands, which is how a switch that is not there yet looks.
 type SwitchHandle struct {
-	name string
-	stub spicommon.StubHolder[device.ISwitch]
+	name    string
+	stub    spicommon.StubHolder[device.ISwitch]
+	offline alert.OfflineAlert
 }
 
 var _ device.ISwitch = (*SwitchHandle)(nil)
@@ -41,6 +43,14 @@ func (h *SwitchHandle) SetState(state device.SwitchState) error {
 	}
 
 	return stub.SetState(state)
+}
+
+// AlertWhenOffline sets whether, and how, there is an alert when the switch goes offline (see alert.WhenOffline). There is none
+// unless it is set. Set it before the plugin starts.
+func (h *SwitchHandle) AlertWhenOffline(offline alert.OfflineAlert) *SwitchHandle {
+	h.offline = offline
+
+	return h
 }
 
 // ThermometerHandle is the assembly's handle on a fake thermometer. It is an environment.IWirelessThermometer, which
@@ -71,8 +81,9 @@ func (h *ThermometerHandle) GetWirelessThermometerData() environment.WirelessThe
 // sensor is, so it goes wherever one does, and it works from the moment the plugin has started. Before then, and after
 // the plugin stops, it answers as a sensor that has not reported anything.
 type DoorSensorHandle struct {
-	name string
-	stub spicommon.StubHolder[device.IDoorSensor]
+	name    string
+	stub    spicommon.StubHolder[device.IDoorSensor]
+	offline alert.OfflineAlert
 }
 
 var _ device.IDoorSensor = (*DoorSensorHandle)(nil)
@@ -89,6 +100,14 @@ func (h *DoorSensorHandle) GetDoorSensorData() device.DoorSensor {
 	}
 
 	return stub.GetDoorSensorData()
+}
+
+// AlertWhenOffline sets whether, and how, there is an alert when the sensor goes offline (see alert.WhenOffline). There is
+// none unless it is set. Set it before the plugin starts.
+func (h *DoorSensorHandle) AlertWhenOffline(offline alert.OfflineAlert) *DoorSensorHandle {
+	h.offline = offline
+
+	return h
 }
 
 // HostHandle is the assembly's handle on a fake host. It says whether the host answers, which it does until the page takes it
