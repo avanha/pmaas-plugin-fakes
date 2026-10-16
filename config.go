@@ -9,6 +9,8 @@ import (
 type PluginConfig struct {
 	switches     []*SwitchHandle
 	thermometers []*ThermometerHandle
+	doorSensors  []*DoorSensorHandle
+	hosts        []*HostHandle
 	names        map[string]bool
 }
 
@@ -56,6 +58,32 @@ func (c *PluginConfig) AddThermometer(name string) *ThermometerHandle {
 
 	handle := &ThermometerHandle{name: name}
 	c.thermometers = append(c.thermometers, handle)
+
+	return handle
+}
+
+// AddDoorSensor adds a fake door sensor, which starts closed, and returns the assembly's handle on it. The handle is a
+// device.IDoorSensor, which is what the real ones are, and works from the moment the plugin has started.
+func (c *PluginConfig) AddDoorSensor(name string) *DoorSensorHandle {
+	c.claim("door sensor", name)
+
+	handle := &DoorSensorHandle{name: name}
+	c.doorSensors = append(c.doorSensors, handle)
+
+	return handle
+}
+
+// AddHost adds a fake host, which starts reachable, and returns the assembly's handle on it. The handle says whether the
+// host answers, and is what netmon is given in place of pinging a real one: netmon's own prober is the handle,
+//
+//	netmonConfig.AddHost("fake-router", "10.0.0.1").UseProber(fakeRouter)
+//
+// so that everything netmon does with a real host that goes down, it does with this one, when the page takes it down.
+func (c *PluginConfig) AddHost(name string) *HostHandle {
+	c.claim("host", name)
+
+	handle := &HostHandle{name: name}
+	c.hosts = append(c.hosts, handle)
 
 	return handle
 }

@@ -133,3 +133,67 @@ func (t *fakeThermometer) persisted() config.ThermometerStateV1 {
 		LastUpdateTime: t.data.SensorData.LastUpdateTime,
 	}
 }
+
+// restoredDoorSensor is a fake door sensor the way it was left, or, if it never was (found is false), a new one that is
+// closed and online.
+func restoredDoorSensor(p *plugin, name string, saved config.DoorSensorStateV1, found bool, now time.Time) *fakeDoorSensor {
+	d := &fakeDoorSensor{plugin: p, name: name}
+
+	if !found {
+		d.data = device.DoorSensor{
+			Name:           name,
+			HasData:        true,
+			Position:       device.DoorPositionClosed,
+			LastUpdateTime: now,
+			Connectivity:   environment.ConnectivityOnline,
+			OnlineSince:    now,
+		}
+
+		return d
+	}
+
+	d.data = device.DoorSensor{
+		Name:           name,
+		HasData:        saved.HasData,
+		Position:       doorPositionOf(saved.Position),
+		LastChangeTime: saved.LastChangeTime,
+		LastUpdateTime: saved.LastUpdateTime,
+		Connectivity:   environment.ConnectivityOnline,
+		OnlineSince:    saved.OnlineSince,
+		OfflineSince:   saved.OfflineSince,
+	}
+
+	if saved.Offline {
+		d.data.Connectivity = environment.ConnectivityOffline
+	}
+
+	return d
+}
+
+func (d *fakeDoorSensor) persisted() config.DoorSensorStateV1 {
+	return config.DoorSensorStateV1{
+		Position:       doorPositionWord(d.data.Position),
+		HasData:        d.data.HasData,
+		LastChangeTime: d.data.LastChangeTime,
+		LastUpdateTime: d.data.LastUpdateTime,
+		Offline:        d.data.Connectivity == environment.ConnectivityOffline,
+		OfflineSince:   d.data.OfflineSince,
+		OnlineSince:    d.data.OnlineSince,
+	}
+}
+
+func doorPositionWord(position device.DoorPosition) string {
+	return strings.ToLower(position.String())
+}
+
+// doorPositionOf is the position a word stands for. Anything it doesn't know is unknown.
+func doorPositionOf(word string) device.DoorPosition {
+	switch word {
+	case "open":
+		return device.DoorPositionOpen
+	case "closed":
+		return device.DoorPositionClosed
+	default:
+		return device.DoorPositionUnknown
+	}
+}

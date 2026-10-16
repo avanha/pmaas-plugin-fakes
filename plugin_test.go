@@ -224,6 +224,8 @@ type fixture struct {
 	plugin    *plugin
 	handle    *SwitchHandle
 	thermo    *ThermometerHandle
+	door      *DoorSensorHandle
+	host      *HostHandle
 	clock     time.Time
 }
 
@@ -236,6 +238,8 @@ func newFixture(t *testing.T, persisted *config.PersistentConfigV1) *fixture {
 	conf := NewPluginConfig()
 	f.handle = conf.AddSwitch("Porch")
 	f.thermo = conf.AddThermometer("Room")
+	f.door = conf.AddDoorSensor("Garage door")
+	f.host = conf.AddHost("Router")
 
 	f.plugin = NewPlugin(conf).(*plugin)
 	f.plugin.now = func() time.Time { return f.clock }
@@ -318,7 +322,7 @@ func TestStart_RegistersTheSwitchAsAnEntityWithAStateOfItsOwn(t *testing.T) {
 	f := newFixture(t, nil)
 	f.start()
 
-	if len(f.container.registrations) != 2 {
+	if len(f.container.registrations) != 3 {
 		t.Fatalf("registrations: %+v", f.container.registrations)
 	}
 
@@ -363,7 +367,7 @@ func TestHandle_IsASwitchBeforeThePluginHasStartedAndAfterItHasStopped(t *testin
 
 	f.container.onPluginGoroutine(func() { <-f.plugin.Stop() })
 
-	if !reflect.DeepEqual(f.container.deregistered, []string{"fakes_Porch", "fakes_Room"}) {
+	if !reflect.DeepEqual(f.container.deregistered, []string{"fakes_Porch", "fakes_Room", "fakes_Garage door"}) {
 		t.Errorf("deregistered %v", f.container.deregistered)
 	}
 

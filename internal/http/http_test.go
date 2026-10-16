@@ -320,3 +320,93 @@ func TestTemplate_EscapesAThermometersName(t *testing.T) {
 		}
 	}
 }
+
+func TestTemplate_ADoorSensorShowsItsPositionAndControls(t *testing.T) {
+	garage := data.DoorSensor{Name: "Garage door", Position: "Open", PositionClass: "open", LastChangeTime: time.Now().Add(-7 * time.Minute)}
+
+	out := strings.Join(strings.Fields(render(t, data.Fakes{DoorSensors: []data.DoorSensor{garage}})), " ")
+
+	for _, want := range []string{
+		`fake-device fake-door" data-name="Garage door"`, `<span class="kind">door sensor</span>`, `state-badge open">Open`,
+		"Open, changed 7m ago", `data-action="door-open" >`, `data-action="door-close" >`, `data-action="offline"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+
+	for _, unwanted := range []string{"Offline</span>", `data-action="online"`, "disabled", "No fake devices"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("unexpectedly contains %q in:\n%s", unwanted, out)
+		}
+	}
+}
+
+func TestTemplate_AnOfflineDoorSensorCanOnlyBeBroughtBack(t *testing.T) {
+	garage := data.DoorSensor{Name: "Garage door", Position: "Open", PositionClass: "open", Offline: true}
+
+	out := strings.Join(strings.Fields(render(t, data.Fakes{DoorSensors: []data.DoorSensor{garage}})), " ")
+
+	for _, want := range []string{
+		"fake-door offline", "Offline</span>", `data-action="online"`, `data-action="door-open" disabled`, `data-action="door-close" disabled`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+
+	if strings.Contains(out, `data-action="offline"`) {
+		t.Errorf("offers to take an offline sensor offline:\n%s", out)
+	}
+}
+
+func TestTemplate_AHostIsUpOrDownWithTheOneButtonThatMakesSense(t *testing.T) {
+	up := strings.Join(strings.Fields(render(t, data.Fakes{Hosts: []data.Host{{Name: "Router", Since: time.Now().Add(-time.Hour)}}})), " ")
+
+	for _, want := range []string{`fake-device fake-host" data-name="Router"`, `<span class="kind">host</span>`, `state-badge on">Up`, "Up since</span> 1h 0m ago", `data-action="host-down"`} {
+		if !strings.Contains(up, want) {
+			t.Errorf("up: missing %q in:\n%s", want, up)
+		}
+	}
+
+	if strings.Contains(up, "host-up") || strings.Contains(up, "Down</span>") {
+		t.Errorf("up host shown as down:\n%s", up)
+	}
+
+	down := strings.Join(strings.Fields(render(t, data.Fakes{Hosts: []data.Host{{Name: "Router", Down: true, Since: time.Now().Add(-5 * time.Minute)}}})), " ")
+
+	for _, want := range []string{"fake-host offline", "Down</span>", "Down since</span> 5m ago", `data-action="host-up"`} {
+		if !strings.Contains(down, want) {
+			t.Errorf("down: missing %q in:\n%s", want, down)
+		}
+	}
+
+	if strings.Contains(down, "host-down") || strings.Contains(down, `state-badge on">Up`) {
+		t.Errorf("down host shown as up:\n%s", down)
+	}
+}
+
+func TestTemplate_EscapesADoorAndAHostName(t *testing.T) {
+	hostile := `<script>alert("name")</script>" onclick="alert(1)"`
+
+	out := render(t, data.Fakes{
+		DoorSensors: []data.DoorSensor{{Name: hostile, Position: `<b>x</b>`, PositionClass: `x" onmouseover="alert(2)`}},
+		Hosts:       []data.Host{{Name: hostile}},
+	})
+
+	for _, dangerous := range []string{"<script>", "<b>x", `onclick="alert(1)"`, `onmouseover="alert(2)"`} {
+		if strings.Contains(out, dangerous) {
+			t.Errorf("unescaped %q in:\n%s", dangerous, out)
+		}
+	}
+}
+
+func TestTemplate_ADoorSensorOrAHostAloneIsNotAnEmptyPage(t *testing.T) {
+	for name, fakes := range map[string]data.Fakes{
+		"door": {DoorSensors: []data.DoorSensor{{Name: "d"}}}, "host": {Hosts: []data.Host{{Name: "h"}}},
+	} {
+		if out := render(t, fakes); strings.Contains(out, "No fake devices") {
+			t.Errorf("%s: says there are none:\n%s", name, out)
+		}
+	}
+}

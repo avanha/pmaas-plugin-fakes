@@ -1,7 +1,9 @@
 package fakes
 
 import (
+	"context"
 	"fmt"
+	"sync/atomic"
 
 	spicommon "github.com/avanha/pmaas-spi/common"
 	"github.com/avanha/pmaas-spi/device"
@@ -63,4 +65,46 @@ func (h *ThermometerHandle) GetWirelessThermometerData() environment.WirelessThe
 	}
 
 	return stub.GetWirelessThermometerData()
+}
+
+// DoorSensorHandle is the assembly's handle on a fake door sensor. It is a device.IDoorSensor, which is what a real door
+// sensor is, so it goes wherever one does, and it works from the moment the plugin has started. Before then, and after
+// the plugin stops, it answers as a sensor that has not reported anything.
+type DoorSensorHandle struct {
+	name string
+	stub spicommon.StubHolder[device.IDoorSensor]
+}
+
+var _ device.IDoorSensor = (*DoorSensorHandle)(nil)
+
+// Name is the sensor's name.
+func (h *DoorSensorHandle) Name() string {
+	return h.name
+}
+
+func (h *DoorSensorHandle) GetDoorSensorData() device.DoorSensor {
+	stub, err := h.stub.Stub()
+	if err != nil {
+		return device.DoorSensor{Name: h.name}
+	}
+
+	return stub.GetDoorSensorData()
+}
+
+// HostHandle is the assembly's handle on a fake host. It says whether the host answers, which it does until the page takes it
+// down, and it can be given to netmon in place of pinging a real host (see PluginConfig.AddHost). It can be asked from
+// any goroutine, and before the plugin starts and after it stops it answers as it last did.
+type HostHandle struct {
+	name string
+	down atomic.Bool
+}
+
+// Name is the host's name.
+func (h *HostHandle) Name() string {
+	return h.name
+}
+
+// Reachable is whether the host answers.
+func (h *HostHandle) Reachable(context.Context) bool {
+	return !h.down.Load()
 }

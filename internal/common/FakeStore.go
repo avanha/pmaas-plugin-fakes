@@ -36,6 +36,16 @@ const (
 	ActionSetTemperature    Action = "set-temperature"
 	ActionAdjustTemperature Action = "adjust-temperature"
 
+	// ActionDoorOpen and ActionDoorClose are a door sensor's door moving, which it reports. ActionOffline and
+	// ActionOnline apply to a door sensor too: the sensor going off the network and coming back, keeping the last
+	// position it reported.
+	ActionDoorOpen  Action = "door-open"
+	ActionDoorClose Action = "door-close"
+
+	// ActionHostDown and ActionHostUp make a host unreachable and reachable, as far as netmon polling it can tell.
+	ActionHostDown Action = "host-down"
+	ActionHostUp   Action = "host-up"
+
 	// ActionStopReporting makes a thermometer stop reporting, as one whose battery has died does: what it last read
 	// stays, and gets older. ActionResumeReporting has it report again.
 	ActionStopReporting   Action = "stop-reporting"

@@ -7,6 +7,28 @@ import "time"
 type Fakes struct {
 	Switches     []Switch
 	Thermometers []Thermometer
+	DoorSensors  []DoorSensor
+	Hosts        []Host
+}
+
+// DoorSensor is one fake door sensor as it stands.
+type DoorSensor struct {
+	Name string
+
+	// Position is "Open", "Closed" or "Unknown", and PositionClass the same as a word safe to use as a style.
+	Position      string
+	PositionClass string
+
+	Offline        bool
+	LastChangeTime time.Time
+	LastUpdateTime time.Time
+}
+
+// Host is one fake host as it stands: reachable, or down, and since when.
+type Host struct {
+	Name  string
+	Down  bool
+	Since time.Time
 }
 
 // Thermometer is one fake thermometer as it stands.

@@ -1,6 +1,6 @@
 <div class="entity-fakes-devices">
     <div class="note">Fake devices, for testing. What PMAAS asks of them is shown here, and they can be changed here as the real thing could be.</div>
-    {{if or .Switches .Thermometers}}
+    {{if or .Switches .Thermometers .DoorSensors .Hosts}}
         {{range .Switches}}
             <div class="fake-device fake-switch{{if .Offline}} offline{{end}}" data-name="{{.Name | html}}">
                 <div class="fake-header">
@@ -84,6 +84,55 @@
                         <button class="fake-button" data-action="resume-reporting">Resume reporting</button>
                     {{else}}
                         <button class="fake-button" data-action="stop-reporting">Stop reporting</button>
+                    {{end}}
+                </div>
+                <div class="action-error"></div>
+            </div>
+        {{end}}
+        {{range .DoorSensors}}
+            <div class="fake-device fake-door{{if .Offline}} offline{{end}}" data-name="{{.Name | html}}">
+                <div class="fake-header">
+                    <span class="name">{{.Name | html}}</span>
+                    <span class="kind">door sensor</span>
+                    <span class="state-badge {{.PositionClass | html}}">{{.Position | html}}</span>
+                    {{if .Offline}}<span class="offline-badge">Offline</span>{{end}}
+                </div>
+                <div class="details">
+                    <div>
+                        <span class="label">Position</span>
+                        {{.Position | html}}{{if not .LastChangeTime.IsZero}}, changed {{RelativeTime .LastChangeTime}}{{end}}
+                    </div>
+                </div>
+                <div class="actions">
+                    <button class="fake-button" data-action="door-open" {{if .Offline}}disabled{{end}}>Open the door</button>
+                    <button class="fake-button" data-action="door-close" {{if .Offline}}disabled{{end}}>Close the door</button>
+                    {{if .Offline}}
+                        <button class="fake-button" data-action="online">Bring online</button>
+                    {{else}}
+                        <button class="fake-button" data-action="offline">Take offline</button>
+                    {{end}}
+                </div>
+                <div class="action-error"></div>
+            </div>
+        {{end}}
+        {{range .Hosts}}
+            <div class="fake-device fake-host{{if .Down}} offline{{end}}" data-name="{{.Name | html}}">
+                <div class="fake-header">
+                    <span class="name">{{.Name | html}}</span>
+                    <span class="kind">host</span>
+                    {{if .Down}}<span class="offline-badge">Down</span>{{else}}<span class="state-badge on">Up</span>{{end}}
+                </div>
+                <div class="details">
+                    <div>
+                        <span class="label">{{if .Down}}Down since{{else}}Up since{{end}}</span>
+                        {{RelativeTime .Since}}
+                    </div>
+                </div>
+                <div class="actions">
+                    {{if .Down}}
+                        <button class="fake-button" data-action="host-up">Bring up</button>
+                    {{else}}
+                        <button class="fake-button" data-action="host-down">Take down</button>
                     {{end}}
                 </div>
                 <div class="action-error"></div>

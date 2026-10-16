@@ -8,6 +8,28 @@ import "time"
 type PersistentConfigV1 struct {
 	Switches     map[string]SwitchStateV1
 	Thermometers map[string]ThermometerStateV1
+	DoorSensors  map[string]DoorSensorStateV1
+	Hosts        map[string]HostStateV1
+}
+
+// DoorSensorStateV1 is one fake door sensor as it was left.
+type DoorSensorStateV1 struct {
+	// Position is "open", "closed" or "unknown", kept as words, and HasData whether it had ever reported.
+	Position       string
+	HasData        bool
+	LastChangeTime time.Time
+	LastUpdateTime time.Time
+
+	// Offline is that the sensor was off the network, and OfflineSince or OnlineSince when that began.
+	Offline      bool
+	OfflineSince time.Time
+	OnlineSince  time.Time
+}
+
+// HostStateV1 is one fake host as it was left.
+type HostStateV1 struct {
+	Down  bool
+	Since time.Time
 }
 
 // ThermometerStateV1 is one fake thermometer as it was left.

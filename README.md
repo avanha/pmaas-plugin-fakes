@@ -39,6 +39,28 @@ its temperature (in °F, exactly or by a degree up or down), which PMAAS sees as
 **stop reporting**, so that its last reading gets older: for testing what an automation does when it can't trust a
 reading. The temperature and whether it is reporting are kept across restarts.
 
+## A fake door sensor
+
+```go
+garage := conf.AddDoorSensor("Garage door") // a device.IDoorSensor, which is what the real ones are
+```
+
+It starts closed and online. The page opens and closes the door, which PMAAS sees as a position change, and takes the sensor
+offline and brings it back: an offline sensor keeps the position it last reported, as a real one does, and can't report the
+door moving. Its position is kept across restarts.
+
+## A fake host
+
+```go
+router := conf.AddHost("Router")
+netmonConfig.AddHost("router", "10.0.0.1").UseProber(router).AlertWhenUnreachable(2*time.Minute, nil)
+```
+
+A host that answers, until the page takes it down. It is for netmon (`pmaas-plugin-netmon`): give it as the host's prober
+and netmon polls it as it would a real one, so everything it does when a host goes down, it does for this one: the
+reachability events, the alert after a time, its escalation, and clearing it when the host is back. Whether it is down is kept
+across restarts.
+
 ## Fakes for unit tests
 
 The `fake` package has plain Go fakes that need no server, for testing code that takes a `device.ISwitch`:
@@ -49,5 +71,6 @@ plug.FailWith(errors.New("offline")) // later commands fail
 plug.Commands()                      // everything it was sent
 
 room := fake.NewThermometer("Room", 22.5)     // degrees Celsius, as entities report them
+garage := fake.NewDoor("Garage", device.DoorPositionClosed)
 room.SetReading(30, time.Now().Add(-time.Hour)) // a reading that is an hour old
 ```

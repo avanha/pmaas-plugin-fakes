@@ -36,8 +36,12 @@ type plugin struct {
 	// Owned by the plugin goroutine, once it has started.
 	switches     []*fakeSwitch
 	thermometers []*fakeThermometer
+	doorSensors  []*fakeDoorSensor
+	hosts        []*fakeHost
 	switchByName map[string]*fakeSwitch
 	thermoByName map[string]*fakeThermometer
+	doorByName   map[string]*fakeDoorSensor
+	hostByName   map[string]*fakeHost
 
 	// reporting is the goroutine that has the thermometers report regularly.
 	cancelReporting context.CancelFunc
@@ -56,6 +60,8 @@ func NewPlugin(config PluginConfig) Plugin {
 		httpHandler:  httphandler.NewHandler(),
 		switchByName: make(map[string]*fakeSwitch),
 		thermoByName: make(map[string]*fakeThermometer),
+		doorByName:   make(map[string]*fakeDoorSensor),
+		hostByName:   make(map[string]*fakeHost),
 		now:          time.Now,
 		reportEvery:  reportEvery,
 	}
@@ -71,8 +77,8 @@ func (p *plugin) Init(container spi.IPMAASContainer) {
 }
 
 func (p *plugin) Start() {
-	fmt.Printf("%T Starting with %d fake switch(es) and %d fake thermometer(s)...\n",
-		p, len(p.config.switches), len(p.config.thermometers))
+	fmt.Printf("%T Starting with %d fake switch(es), %d thermometer(s), %d door sensor(s) and %d host(s)...\n",
+		p, len(p.config.switches), len(p.config.thermometers), len(p.config.doorSensors), len(p.config.hosts))
 
 	persisted := p.loadPersistedState()
 
@@ -83,6 +89,15 @@ func (p *plugin) Start() {
 	for _, handle := range p.config.thermometers {
 		saved, found := persisted.Thermometers[handle.name]
 		p.startThermometer(handle, saved, found)
+	}
+
+	for _, handle := range p.config.doorSensors {
+		saved, found := persisted.DoorSensors[handle.name]
+		p.startDoorSensor(handle, saved, found)
+	}
+
+	for _, handle := range p.config.hosts {
+		p.startHost(handle, persisted.Hosts[handle.name])
 	}
 
 	// A fake that has never been run before is saved as it starts, so there is a file to look at.
@@ -136,6 +151,42 @@ func (p *plugin) startThermometer(handle *ThermometerHandle, saved config.Thermo
 	if err := handle.stub.Provide(p.container, event); err != nil {
 		fmt.Printf("%T %v\n", p, err)
 	}
+}
+
+// startDoorSensor makes a fake door sensor the way it was left, or new if it never was, and registers it.
+func (p *plugin) startDoorSensor(handle *DoorSensorHandle, saved config.DoorSensorStateV1, found bool) {
+	d := restoredDoorSensor(p, handle.name, saved, found, p.now())
+
+	id, err := p.container.RegisterEntity(
+		handle.name, device.IDoorSensorType, handle.name,
+		func() (any, error) { return d.getStub(p.container), nil })
+	if err != nil {
+		fmt.Printf("%T unable to register the fake door sensor %q: %v\n", p, handle.name, err)
+		return
+	}
+
+	d.id = id
+	p.doorSensors = append(p.doorSensors, d)
+	p.doorByName[handle.name] = d
+
+	event := spicommon.StubAvailableEvent[device.IDoorSensor]{EntityEvent: d.entityEvent(), EntityStub: d.getStub(p.container)}
+	if err := handle.stub.Provide(p.container, event); err != nil {
+		fmt.Printf("%T %v\n", p, err)
+	}
+}
+
+// startHost makes a fake host the way it was left, or up if it never was. A host is not an entity: netmon registers the
+// real one, and asks the handle whether it answers.
+func (p *plugin) startHost(handle *HostHandle, saved config.HostStateV1) {
+	h := &fakeHost{plugin: p, name: handle.name, handle: handle, down: saved.Down, since: saved.Since}
+	handle.down.Store(saved.Down)
+
+	if !saved.Down && h.since.IsZero() {
+		h.since = p.now()
+	}
+
+	p.hosts = append(p.hosts, h)
+	p.hostByName[handle.name] = h
 }
 
 // startReporting has the thermometers report regularly. Without it a reading would go stale even though nothing
@@ -210,8 +261,25 @@ func (p *plugin) Stop() chan func() {
 		t.closeStub()
 	}
 
+	doorHandles := make(map[string]*DoorSensorHandle, len(p.config.doorSensors))
+	for _, handle := range p.config.doorSensors {
+		doorHandles[handle.name] = handle
+	}
+
+	for _, d := range p.doorSensors {
+		doorHandles[d.name].stub.Withdraw()
+
+		if err := p.container.DeregisterEntity(d.id); err != nil {
+			fmt.Printf("%T unable to deregister the fake door sensor %q: %v\n", p, d.name, err)
+		}
+
+		d.closeStub()
+	}
+
 	p.switches, p.switchByName = nil, make(map[string]*fakeSwitch)
 	p.thermometers, p.thermoByName = nil, make(map[string]*fakeThermometer)
+	p.doorSensors, p.doorByName = nil, make(map[string]*fakeDoorSensor)
+	p.hosts, p.hostByName = nil, make(map[string]*fakeHost)
 
 	// The goroutine that has them report is told to stop above, and finishes promptly; wait for it away from here, which
 	// is the plugin's own goroutine.
@@ -242,6 +310,14 @@ func (p *plugin) do(name string, action common.Action, count int, value float64)
 		return t.do(action, value)
 	}
 
+	if d, ok := p.doorByName[name]; ok {
+		return d.do(action)
+	}
+
+	if h, ok := p.hostByName[name]; ok {
+		return h.do(action)
+	}
+
 	return common.Refuse("there is no fake %q", name)
 }
 
@@ -250,6 +326,8 @@ func (p *plugin) getFakes() data.Fakes {
 	result := data.Fakes{
 		Switches:     make([]data.Switch, len(p.switches)),
 		Thermometers: make([]data.Thermometer, len(p.thermometers)),
+		DoorSensors:  make([]data.DoorSensor, len(p.doorSensors)),
+		Hosts:        make([]data.Host, len(p.hosts)),
 	}
 
 	for i, s := range p.switches {
@@ -290,6 +368,21 @@ func (p *plugin) getFakes() data.Fakes {
 		}
 	}
 
+	for i, d := range p.doorSensors {
+		result.DoorSensors[i] = data.DoorSensor{
+			Name:           d.name,
+			Position:       d.data.Position.String(),
+			PositionClass:  strings.ToLower(d.data.Position.String()),
+			Offline:        d.data.Connectivity == environment.ConnectivityOffline,
+			LastChangeTime: d.data.LastChangeTime,
+			LastUpdateTime: d.data.LastUpdateTime,
+		}
+	}
+
+	for i, h := range p.hosts {
+		result.Hosts[i] = data.Host{Name: h.name, Down: h.down, Since: h.since}
+	}
+
 	return result
 }
 
@@ -298,6 +391,8 @@ func (p *plugin) persist() {
 	persisted := config.PersistentConfigV1{
 		Switches:     make(map[string]config.SwitchStateV1, len(p.switches)),
 		Thermometers: make(map[string]config.ThermometerStateV1, len(p.thermometers)),
+		DoorSensors:  make(map[string]config.DoorSensorStateV1, len(p.doorSensors)),
+		Hosts:        make(map[string]config.HostStateV1, len(p.hosts)),
 	}
 
 	for _, s := range p.switches {
@@ -306,6 +401,14 @@ func (p *plugin) persist() {
 
 	for _, t := range p.thermometers {
 		persisted.Thermometers[t.name] = t.persisted()
+	}
+
+	for _, d := range p.doorSensors {
+		persisted.DoorSensors[d.name] = d.persisted()
+	}
+
+	for _, h := range p.hosts {
+		persisted.Hosts[h.name] = config.HostStateV1{Down: h.down, Since: h.since}
 	}
 
 	if err := p.container.SaveConfig(persisted); err != nil {

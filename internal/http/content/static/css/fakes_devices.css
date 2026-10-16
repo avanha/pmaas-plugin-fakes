@@ -64,6 +64,14 @@
     background: #5cb85c;
 }
 
+.entity-fakes-devices .state-badge.open {
+    background: #f0ad4e;
+}
+
+.entity-fakes-devices .state-badge.closed {
+    background: #5cb85c;
+}
+
 .entity-fakes-devices .offline-badge {
     background: #d9534f;
 }
