@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/avanha/pmaas-plugin-fakes/config"
@@ -285,29 +286,64 @@ func TestThermometer_ReportingKeepsTheReadingNewWithoutMakingNews(t *testing.T) 
 	}
 }
 
-func TestThermometer_ReportsOnItsOwnWhileRunningAndStopsWhenThePluginDoes(t *testing.T) {
-	f := newFixture(t, nil)
-	f.plugin.reportEvery = 2 * time.Millisecond
-	f.start()
+func TestThermometer_ReportsEveryMinuteOnItsOwnWhileRunningAndStopsWhenThePluginDoes(t *testing.T) {
+	// On the virtual clock of a bubble, ten minutes pass at once, and exactly.
+	synctest.Test(t, func(t *testing.T) {
+		f := newFixture(t, nil)
+		f.plugin.now = time.Now
+		f.start()
 
-	f.advance(10 * time.Minute)
+		started := f.reading().LastUpdateTime
 
-	deadline := time.Now().Add(3 * time.Second)
-	for !f.reading().LastUpdateTime.Equal(f.clock) {
-		if time.Now().After(deadline) {
-			t.Fatalf("it never reported: %v, want %v", f.reading().LastUpdateTime, f.clock)
+		time.Sleep(10*time.Minute + 30*time.Second)
+		synctest.Wait()
+
+		// It reported at each of the ten minutes, the last of them half a minute ago.
+		if got, want := f.reading().LastUpdateTime, started.Add(10*time.Minute); !got.Equal(want) {
+			t.Errorf("last reported %v, want %v", got, want)
 		}
 
-		time.Sleep(2 * time.Millisecond)
-	}
+		var done chan func()
 
-	var done chan func()
+		f.container.onPluginGoroutine(func() { done = f.plugin.Stop() })
 
-	f.container.onPluginGoroutine(func() { done = f.plugin.Stop() })
+		if _, open := <-done; open {
+			t.Fatal("received a callback, wanted the channel closed")
+		}
 
-	if _, open := <-done; open {
-		t.Fatal("received a callback, wanted the channel closed")
-	}
+		// And nothing is left running: the bubble would not end while a goroutine was still waiting for a tick.
+	})
+}
+
+func TestThermometer_AThermometerThatStoppedReportingGetsOlderOnTheClock(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		f := newFixture(t, nil)
+		f.plugin.now = time.Now
+		f.start()
+
+		reported := f.reading().LastUpdateTime
+
+		if err := f.doTo("Room", common.ActionStopReporting, 0); err != nil {
+			t.Fatal(err)
+		}
+
+		time.Sleep(2 * time.Hour)
+		synctest.Wait()
+
+		if got := f.reading().LastUpdateTime; !got.Equal(reported) {
+			t.Errorf("a thermometer that stopped reporting reported: %v, was %v", got, reported)
+		}
+
+		if err := f.doTo("Room", common.ActionResumeReporting, 0); err != nil {
+			t.Fatal(err)
+		}
+
+		if got := f.reading().LastUpdateTime; !got.Equal(reported.Add(2 * time.Hour)) {
+			t.Errorf("after resuming: %v, want %v", got, reported.Add(2*time.Hour))
+		}
+
+		f.container.onPluginGoroutine(func() { <-f.plugin.Stop() })
+	})
 }
 
 func TestThermometer_NoThermometersMeansNothingToReportWith(t *testing.T) {
@@ -479,38 +515,45 @@ func TestThermometer_OneThatHasNeverReadAnythingStaysSilentWhenItReports(t *test
 }
 
 func TestStop_WaitsForTheReportingToFinishBeforeSayingItHas(t *testing.T) {
-	f := newFixture(t, nil)
-	f.plugin.reportEvery = time.Millisecond
-	f.container.entered = make(chan struct{}, 1)
-	f.start()
+	synctest.Test(t, func(t *testing.T) {
+		f := newFixture(t, nil)
+		f.plugin.now = time.Now
+		f.container.entered = make(chan struct{}, 1)
+		f.start()
 
-	// Catch the reporting goroutine in the middle of handing a report over.
-	f.container.mu.Lock()
-	f.container.holdEnqueue = make(chan struct{})
-	hold := f.container.holdEnqueue
-	f.container.mu.Unlock()
+		// Catch the reporting goroutine in the middle of handing a report over, when the minute comes.
+		f.container.mu.Lock()
+		f.container.holdEnqueue = make(chan struct{})
+		hold := f.container.holdEnqueue
+		f.container.mu.Unlock()
 
-	select {
-	case <-f.container.entered:
-	case <-time.After(3 * time.Second):
-		t.Fatal("the reporting never started")
-	}
+		time.Sleep(time.Minute)
+		synctest.Wait()
 
-	var done chan func()
+		select {
+		case <-f.container.entered:
+		default:
+			t.Fatal("the reporting never started")
+		}
 
-	f.container.onPluginGoroutine(func() { done = f.plugin.Stop() })
+		var done chan func()
 
-	select {
-	case <-done:
-		t.Fatal("Stop said it had finished while the reporting was still going")
-	case <-time.After(50 * time.Millisecond):
-	}
+		f.container.onPluginGoroutine(func() { done = f.plugin.Stop() })
+		synctest.Wait()
 
-	close(hold)
+		select {
+		case <-done:
+			t.Fatal("Stop said it had finished while the reporting was still going")
+		default:
+		}
 
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		t.Fatal("Stop never finished")
-	}
+		close(hold)
+		synctest.Wait()
+
+		select {
+		case <-done:
+		default:
+			t.Fatal("Stop never finished")
+		}
+	})
 }
