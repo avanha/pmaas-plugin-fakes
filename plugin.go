@@ -14,9 +14,11 @@ import (
 	httphandler "github.com/avanha/pmaas-plugin-fakes/internal/http"
 	spi "github.com/avanha/pmaas-spi"
 	"github.com/avanha/pmaas-spi/alert"
+	"github.com/avanha/pmaas-spi/clock"
 	spicommon "github.com/avanha/pmaas-spi/common"
 	"github.com/avanha/pmaas-spi/device"
 	"github.com/avanha/pmaas-spi/environment"
+	"github.com/avanha/pmaas-spi/events"
 )
 
 // reportEvery is how often a fake thermometer that is reporting reports what it reads, as a real one does, so that its
@@ -43,6 +45,9 @@ type plugin struct {
 	thermoByName map[string]*fakeThermometer
 	doorByName   map[string]*fakeDoorSensor
 	hostByName   map[string]*fakeHost
+
+	clockReceiver           int
+	clockReceiverRegistered bool
 
 	// reporting is the goroutine that has the thermometers report regularly.
 	cancelReporting context.CancelFunc
@@ -106,6 +111,15 @@ func (p *plugin) Start() {
 
 	p.startReporting()
 	p.checkOfflineAlerts()
+
+	handle, err := p.container.RegisterEventReceiver(isMinuteChanged, p.onClockEvent)
+	if err != nil {
+		fmt.Printf("%T unable to register for clock events, so offline alerts will only follow changes: %v\n", p, err)
+
+		return
+	}
+
+	p.clockReceiver, p.clockReceiverRegistered = handle, true
 }
 
 // startSwitch makes a fake switch the way it was left, or new if it never was, and registers it.
@@ -196,7 +210,7 @@ func (p *plugin) startHost(handle *HostHandle, saved config.HostStateV1) {
 // startReporting has the thermometers report regularly. Without it a reading would go stale even though nothing
 // was wrong, as it would with a real sensor that stopped talking.
 func (p *plugin) startReporting() {
-	if len(p.thermometers) == 0 && !p.watchingOffline() {
+	if len(p.thermometers) == 0 {
 		return
 	}
 
@@ -219,31 +233,27 @@ func (p *plugin) startReporting() {
 	})
 }
 
-// report has every thermometer that is reporting report, and looks again at the devices that are offline, since an alert
-// that waits for a time comes due without anything changing. Runs on the plugin goroutine.
+// report has every thermometer that is reporting report. Runs on the plugin goroutine.
 func (p *plugin) report() {
 	for _, t := range p.thermometers {
 		t.refresh()
 	}
-
-	p.checkOfflineAlerts()
 }
 
-// watchingOffline is whether any fake has an alert for going offline.
-func (p *plugin) watchingOffline() bool {
-	for _, s := range p.switches {
-		if s.offlineWatch != nil {
-			return true
-		}
+// onClockEvent looks again at the fakes that are offline each minute, since an alert that waits for a time comes due
+// without anything changing. Runs on the plugin goroutine.
+func (p *plugin) onClockEvent(eventInfo *events.EventInfo) error {
+	if _, ok := eventInfo.Event.(clock.MinuteChangedEvent); ok {
+		p.checkOfflineAlerts()
 	}
 
-	for _, d := range p.doorSensors {
-		if d.offlineWatch != nil {
-			return true
-		}
-	}
+	return nil
+}
 
-	return false
+func isMinuteChanged(eventInfo *events.EventInfo) bool {
+	_, ok := eventInfo.Event.(clock.MinuteChangedEvent)
+
+	return ok
 }
 
 // checkOfflineAlerts looks at every fake that has an alert for going offline. Runs on the plugin goroutine.
@@ -270,6 +280,14 @@ func (p *plugin) Stop() chan func() {
 	if p.cancelReporting != nil {
 		p.cancelReporting()
 		p.cancelReporting = nil
+	}
+
+	if p.clockReceiverRegistered {
+		p.clockReceiverRegistered = false
+
+		if err := p.container.DeregisterEventReceiver(p.clockReceiver); err != nil {
+			fmt.Printf("%T unable to deregister the clock event receiver: %v\n", p, err)
+		}
 	}
 
 	switchHandles := make(map[string]*SwitchHandle, len(p.config.switches))

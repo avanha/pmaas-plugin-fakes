@@ -7,7 +7,34 @@ import (
 
 	"github.com/avanha/pmaas-plugin-fakes/internal/common"
 	"github.com/avanha/pmaas-spi/alert"
+	"github.com/avanha/pmaas-spi/clock"
+	"github.com/avanha/pmaas-spi/events"
 )
+
+// minute is the clock saying a minute has begun, to the plugin's receiver, on the plugin's goroutine.
+func (f *fixture) minute() {
+	f.t.Helper()
+
+	f.container.mu.Lock()
+	receiver := f.container.receiver
+	f.container.mu.Unlock()
+
+	if receiver == nil {
+		f.t.Fatal("the plugin isn't listening for the clock")
+	}
+
+	f.container.onPluginGoroutine(func() {
+		_ = receiver(&events.EventInfo{Event: clock.MinuteChangedEvent{Time: f.plugin.now()}})
+	})
+}
+
+// minutes lets a span of virtual time go by, a minute at a time with the clock saying so.
+func minutes(f *fixture, span time.Duration) {
+	for ; span > 0; span -= time.Minute {
+		time.Sleep(min(span, time.Minute))
+		f.minute()
+	}
+}
 
 func alertEvents(broadcasts []any) (raised []alert.RaisedEvent, cleared []alert.ClearedEvent) {
 	for _, b := range broadcasts {
@@ -29,7 +56,7 @@ func TestOfflineAlert_IsOffUnlessAskedFor(t *testing.T) {
 	_ = f.doTo("Garage door", common.ActionOffline, 0)
 	_ = f.doTo("Porch", common.ActionOffline, 0)
 	f.advance(24 * time.Hour)
-	f.container.onPluginGoroutine(f.plugin.report)
+	f.minute()
 
 	if raised, cleared := alertEvents(f.container.broadcastsOf()); len(raised)+len(cleared) != 0 {
 		t.Errorf("alerts with none asked for: %v %v", raised, cleared)
@@ -78,20 +105,20 @@ func TestOfflineAlert_WaitsForItsTimeOnTheVirtualClock(t *testing.T) {
 
 		_ = f.doTo("Garage door", common.ActionOffline, 0)
 
-		time.Sleep(4*time.Minute + 30*time.Second)
+		minutes(f, 4*time.Minute+30*time.Second)
 
 		if raised, _ := alertEvents(f.container.broadcastsOf()); len(raised) != 0 {
 			t.Fatalf("raised too early: %+v", raised)
 		}
 
-		// Nothing has changed, but the time has come: the plugin looks every minute.
-		time.Sleep(90 * time.Second)
+		// Nothing has changed, but the time has come: the plugin looks at each minute.
+		minutes(f, 90*time.Second)
 
 		if raised, _ := alertEvents(f.container.broadcastsOf()); len(raised) != 1 {
 			t.Fatalf("raised %+v", raised)
 		}
 
-		time.Sleep(10 * time.Minute)
+		minutes(f, 10*time.Minute)
 
 		if raised, _ := alertEvents(f.container.broadcastsOf()); len(raised) != 1 {
 			t.Fatalf("raised again: %+v", raised)
@@ -99,4 +126,19 @@ func TestOfflineAlert_WaitsForItsTimeOnTheVirtualClock(t *testing.T) {
 
 		f.container.onPluginGoroutine(func() { <-f.plugin.Stop() })
 	})
+}
+
+func TestOfflineAlert_ListensForTheClockWhileRunningAndNotAfter(t *testing.T) {
+	f := newFixture(t, nil)
+	f.start()
+
+	if f.container.receiver == nil {
+		t.Fatal("not listening for the clock")
+	}
+
+	f.container.onPluginGoroutine(func() { <-f.plugin.Stop() })
+
+	if f.container.receiver != nil || len(f.container.receiversDeregistered) != 1 {
+		t.Errorf("still listening: %v", f.container.receiversDeregistered)
+	}
 }

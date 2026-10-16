@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 
 	"github.com/avanha/pmaas-plugin-fakes/internal/common"
-	"github.com/avanha/pmaas-spi/alert"
 	spi "github.com/avanha/pmaas-spi"
+	"github.com/avanha/pmaas-spi/alert"
 	spicommon "github.com/avanha/pmaas-spi/common"
 	"github.com/avanha/pmaas-spi/device"
 	"github.com/avanha/pmaas-spi/environment"

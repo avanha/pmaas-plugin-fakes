@@ -36,6 +36,10 @@ type fakeContainer struct {
 	persisted     *config.PersistentConfigV1
 	serverBatches [][]func()
 
+	// receiver is the clock event receiver the plugin registered, if it has; receiversDeregistered are the handles it gave back.
+	receiver              events.EventReceiver
+	receiversDeregistered []int
+
 	// holdEnqueue, when set, stops EnqueueOnPluginGoRoutine until it is closed, and entered is told when a caller is held.
 	holdEnqueue chan struct{}
 	entered     chan struct{}
@@ -103,6 +107,25 @@ func (c *fakeContainer) onPluginGoroutine(f func()) {
 	done := make(chan struct{})
 	c.work <- func() { f(); close(done) }
 	<-done
+}
+
+func (c *fakeContainer) RegisterEventReceiver(predicate events.EventPredicate, receiver events.EventReceiver) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.receiver = receiver
+
+	return 7, nil
+}
+
+func (c *fakeContainer) DeregisterEventReceiver(handle int) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.receiver = nil
+	c.receiversDeregistered = append(c.receiversDeregistered, handle)
+
+	return nil
 }
 
 func (c *fakeContainer) ProvideContentFS(fs.FS, string) {}
