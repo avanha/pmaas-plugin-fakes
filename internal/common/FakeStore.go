@@ -42,6 +42,13 @@ const (
 	ActionDoorOpen  Action = "door-open"
 	ActionDoorClose Action = "door-close"
 
+	// ActionPressSingle, ActionPressDouble, ActionPressTriple and ActionPressLong are a button being pressed that way. It
+	// announces the press, and PMAAS sees it as it does a real button's.
+	ActionPressSingle Action = "press-single"
+	ActionPressDouble Action = "press-double"
+	ActionPressTriple Action = "press-triple"
+	ActionPressLong   Action = "press-long"
+
 	// ActionHostDown and ActionHostUp make a host unreachable and reachable, as far as netmon polling it can tell.
 	ActionHostDown Action = "host-down"
 	ActionHostUp   Action = "host-up"

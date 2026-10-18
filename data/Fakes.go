@@ -9,6 +9,18 @@ type Fakes struct {
 	Thermometers []Thermometer
 	DoorSensors  []DoorSensor
 	Hosts        []Host
+	Buttons      []Button
+}
+
+// Button is one fake button as it stands: how many times it has been pressed, and the last.
+type Button struct {
+	Name string
+
+	Presses uint64
+
+	// LastPress is "single", "double", "triple" or "long", and empty if it has never been pressed.
+	LastPress     string
+	LastPressTime time.Time
 }
 
 // DoorSensor is one fake door sensor as it stands.

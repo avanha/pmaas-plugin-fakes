@@ -11,6 +11,7 @@ type PluginConfig struct {
 	thermometers []*ThermometerHandle
 	doorSensors  []*DoorSensorHandle
 	hosts        []*HostHandle
+	buttons      []*ButtonHandle
 	names        map[string]bool
 }
 
@@ -69,6 +70,19 @@ func (c *PluginConfig) AddDoorSensor(name string) *DoorSensorHandle {
 
 	handle := &DoorSensorHandle{name: name}
 	c.doorSensors = append(c.doorSensors, handle)
+
+	return handle
+}
+
+// AddButton adds a fake button, which has never been pressed, and returns the assembly's handle on it. The handle is a
+// device.IButton and says the ID its events are from, so it can be given to whatever waits for a button, such as
+// trigger.ButtonPressed in pmaas-automations: swap the line that makes it for the real one. The page presses it, single,
+// double, triple and long, and each press is announced as the real ones are.
+func (c *PluginConfig) AddButton(name string) *ButtonHandle {
+	c.claim("button", name)
+
+	handle := &ButtonHandle{name: name}
+	c.buttons = append(c.buttons, handle)
 
 	return handle
 }

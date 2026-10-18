@@ -41,6 +41,8 @@ type plugin struct {
 	thermometers []*fakeThermometer
 	doorSensors  []*fakeDoorSensor
 	hosts        []*fakeHost
+	buttons      []*fakeButton
+	buttonByName map[string]*fakeButton
 	switchByName map[string]*fakeSwitch
 	thermoByName map[string]*fakeThermometer
 	doorByName   map[string]*fakeDoorSensor
@@ -68,6 +70,7 @@ func NewPlugin(config PluginConfig) Plugin {
 		thermoByName: make(map[string]*fakeThermometer),
 		doorByName:   make(map[string]*fakeDoorSensor),
 		hostByName:   make(map[string]*fakeHost),
+		buttonByName: make(map[string]*fakeButton),
 		now:          time.Now,
 		reportEvery:  reportEvery,
 	}
@@ -83,8 +86,8 @@ func (p *plugin) Init(container spi.IPMAASContainer) {
 }
 
 func (p *plugin) Start() {
-	fmt.Printf("%T Starting with %d fake switch(es), %d thermometer(s), %d door sensor(s) and %d host(s)...\n",
-		p, len(p.config.switches), len(p.config.thermometers), len(p.config.doorSensors), len(p.config.hosts))
+	fmt.Printf("%T Starting with %d fake switch(es), %d thermometer(s), %d door sensor(s), %d host(s) and %d button(s)...\n",
+		p, len(p.config.switches), len(p.config.thermometers), len(p.config.doorSensors), len(p.config.hosts), len(p.config.buttons))
 
 	persisted := p.loadPersistedState()
 
@@ -104,6 +107,10 @@ func (p *plugin) Start() {
 
 	for _, handle := range p.config.hosts {
 		p.startHost(handle, persisted.Hosts[handle.name])
+	}
+
+	for _, handle := range p.config.buttons {
+		p.startButton(handle)
 	}
 
 	// A fake that has never been run before is saved as it starts, so there is a file to look at.
@@ -336,6 +343,23 @@ func (p *plugin) Stop() chan func() {
 		d.closeStub()
 	}
 
+	buttonHandles := make(map[string]*ButtonHandle, len(p.config.buttons))
+	for _, handle := range p.config.buttons {
+		buttonHandles[handle.name] = handle
+	}
+
+	for _, b := range p.buttons {
+		buttonHandles[b.name].stub.Withdraw()
+		buttonHandles[b.name].entityId.Store(nil)
+
+		if err := p.container.DeregisterEntity(b.id); err != nil {
+			fmt.Printf("%T unable to deregister the fake button %q: %v\n", p, b.name, err)
+		}
+
+		b.closeStub()
+	}
+
+	p.buttons, p.buttonByName = nil, make(map[string]*fakeButton)
 	p.switches, p.switchByName = nil, make(map[string]*fakeSwitch)
 	p.thermometers, p.thermoByName = nil, make(map[string]*fakeThermometer)
 	p.doorSensors, p.doorByName = nil, make(map[string]*fakeDoorSensor)
@@ -378,6 +402,10 @@ func (p *plugin) do(name string, action common.Action, count int, value float64)
 		return h.do(action)
 	}
 
+	if b, ok := p.buttonByName[name]; ok {
+		return b.do(action)
+	}
+
 	return common.Refuse("there is no fake %q", name)
 }
 
@@ -388,6 +416,16 @@ func (p *plugin) getFakes() data.Fakes {
 		Thermometers: make([]data.Thermometer, len(p.thermometers)),
 		DoorSensors:  make([]data.DoorSensor, len(p.doorSensors)),
 		Hosts:        make([]data.Host, len(p.hosts)),
+		Buttons:      make([]data.Button, len(p.buttons)),
+	}
+
+	for i, b := range p.buttons {
+		view := data.Button{Name: b.name, Presses: b.data.Presses, LastPressTime: b.data.LastPressTime}
+		if b.data.LastPress != device.PressUnknown {
+			view.LastPress = b.data.LastPress.String()
+		}
+
+		result.Buttons[i] = view
 	}
 
 	for i, s := range p.switches {

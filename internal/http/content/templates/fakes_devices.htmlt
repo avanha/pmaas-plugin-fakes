@@ -1,6 +1,6 @@
 <div class="entity-fakes-devices">
     <div class="note">Fake devices, for testing. What PMAAS asks of them is shown here, and they can be changed here as the real thing could be.</div>
-    {{if or .Switches .Thermometers .DoorSensors .Hosts}}
+    {{if or .Switches .Thermometers .DoorSensors .Hosts .Buttons}}
         {{range .Switches}}
             <div class="fake-device fake-switch{{if .Offline}} offline{{end}}" data-name="{{.Name | html}}">
                 <div class="fake-header">
@@ -111,6 +111,28 @@
                     {{else}}
                         <button class="fake-button" data-action="offline">Take offline</button>
                     {{end}}
+                </div>
+                <div class="action-error"></div>
+            </div>
+        {{end}}
+        {{range .Buttons}}
+            <div class="fake-device fake-button-device" data-name="{{.Name | html}}">
+                <div class="fake-header">
+                    <span class="name">{{.Name | html}}</span>
+                    <span class="kind">button</span>
+                    <span class="state-badge off">{{.Presses}} press{{if ne .Presses 1}}es{{end}}</span>
+                </div>
+                <div class="details">
+                    <div>
+                        <span class="label">Last press</span>
+                        {{if .LastPress}}{{.LastPress | html}}, {{RelativeTime .LastPressTime}}{{else}}never{{end}}
+                    </div>
+                </div>
+                <div class="actions">
+                    <button class="fake-button" data-action="press-single">Single click</button>
+                    <button class="fake-button" data-action="press-double">Double click</button>
+                    <button class="fake-button" data-action="press-triple">Triple click</button>
+                    <button class="fake-button" data-action="press-long">Long press</button>
                 </div>
                 <div class="action-error"></div>
             </div>
