@@ -3,6 +3,7 @@ package http
 import (
 	"bytes"
 	"errors"
+	"log/slog"
 	"net/http"
 	"path"
 	"strings"
@@ -165,7 +166,7 @@ func TestControlRequest(t *testing.T) {
 
 	t.Run("does it", func(t *testing.T) {
 		store := &fakeStore{}
-		h := &Handler{store: store}
+		h := &Handler{log: slog.New(slog.DiscardHandler), store: store}
 
 		response, err := h.handleHttpControlRequest(nil, post, &controlRequest{Name: "Porch", Action: "set-temperature", Count: 3, Value: 71.5})
 		if err != nil || !response.(controlResponse).OK {
@@ -179,7 +180,7 @@ func TestControlRequest(t *testing.T) {
 
 	t.Run("only POST", func(t *testing.T) {
 		store := &fakeStore{}
-		h := &Handler{store: store}
+		h := &Handler{log: slog.New(slog.DiscardHandler), store: store}
 
 		if _, err := h.handleHttpControlRequest(nil, &http.Request{Method: http.MethodGet}, &controlRequest{Name: "a", Action: "b"}); err == nil {
 			t.Error("a GET was accepted")
@@ -193,7 +194,7 @@ func TestControlRequest(t *testing.T) {
 	t.Run("needs a name and an action", func(t *testing.T) {
 		for _, body := range []any{&controlRequest{}, &controlRequest{Name: "a"}, &controlRequest{Action: "b"}, nil, "x"} {
 			store := &fakeStore{}
-			h := &Handler{store: store}
+			h := &Handler{log: slog.New(slog.DiscardHandler), store: store}
 
 			if _, err := h.handleHttpControlRequest(nil, post, body); err == nil {
 				t.Errorf("%v was accepted", body)
@@ -206,7 +207,7 @@ func TestControlRequest(t *testing.T) {
 	})
 
 	t.Run("says what was wrong with the request", func(t *testing.T) {
-		h := &Handler{store: &fakeStore{err: common.Refuse("the device is offline")}}
+		h := &Handler{log: slog.New(slog.DiscardHandler), store: &fakeStore{err: common.Refuse("the device is offline")}}
 
 		_, err := h.handleHttpControlRequest(nil, post, &controlRequest{Name: "a", Action: "b"})
 		if err == nil || err.Error() != "the device is offline" {
@@ -215,7 +216,7 @@ func TestControlRequest(t *testing.T) {
 	})
 
 	t.Run("keeps anything else to itself", func(t *testing.T) {
-		h := &Handler{store: &fakeStore{err: errors.New("secret internal detail: /var/pmaas/db")}}
+		h := &Handler{log: slog.New(slog.DiscardHandler), store: &fakeStore{err: errors.New("secret internal detail: /var/pmaas/db")}}
 
 		_, err := h.handleHttpControlRequest(nil, post, &controlRequest{Name: "a", Action: "b"})
 		if err == nil || strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "/var") {

@@ -1,7 +1,6 @@
 package fakes
 
 import (
-	"fmt"
 	"sync/atomic"
 
 	"github.com/avanha/pmaas-plugin-fakes/internal/common"
@@ -134,7 +133,7 @@ func (p *plugin) startButton(handle *ButtonHandle) {
 		handle.name, device.IButtonType, handle.name,
 		func() (any, error) { return b.getStub(p.container), nil })
 	if err != nil {
-		fmt.Printf("%T unable to register the fake button %q: %v\n", p, handle.name, err)
+		p.log.Error("unable to register the fake button", "name", handle.name, "error", err)
 		return
 	}
 
@@ -145,6 +144,6 @@ func (p *plugin) startButton(handle *ButtonHandle) {
 
 	event := spicommon.StubAvailableEvent[device.IButton]{EntityEvent: b.entityEvent(), EntityStub: b.getStub(p.container)}
 	if err := handle.stub.Provide(p.container, event); err != nil {
-		fmt.Printf("%T %v\n", p, err)
+		p.log.Error("unable to provide the stub", "error", err)
 	}
 }

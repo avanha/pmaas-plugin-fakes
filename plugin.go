@@ -3,6 +3,8 @@ package fakes
 import (
 	"context"
 	"fmt"
+	"github.com/avanha/pmaas-spi/logging"
+	"log/slog"
 	"reflect"
 	"strings"
 	"sync"
@@ -32,6 +34,7 @@ type Plugin interface {
 // plugin registers fake devices as the entities real ones would be, and shows them on a page, where what PMAAS has
 // done to them can be seen and they can be changed.
 type plugin struct {
+	log         *slog.Logger
 	config      PluginConfig
 	container   spi.IPMAASContainer
 	httpHandler *httphandler.Handler
@@ -82,12 +85,13 @@ func (p *plugin) ShortName() string {
 
 func (p *plugin) Init(container spi.IPMAASContainer) {
 	p.container = container
+	p.log = logging.For(container)
 	p.httpHandler.Init(container, &fakeStoreAdapter{parent: p})
 }
 
 func (p *plugin) Start() {
-	fmt.Printf("%T Starting with %d fake switch(es), %d thermometer(s), %d door sensor(s), %d host(s) and %d button(s)...\n",
-		p, len(p.config.switches), len(p.config.thermometers), len(p.config.doorSensors), len(p.config.hosts), len(p.config.buttons))
+	p.log.Info("starting", "switches", len(p.config.switches), "thermometers", len(p.config.thermometers),
+		"doorSensors", len(p.config.doorSensors), "hosts", len(p.config.hosts), "buttons", len(p.config.buttons))
 
 	persisted := p.loadPersistedState()
 
@@ -121,7 +125,7 @@ func (p *plugin) Start() {
 
 	handle, err := p.container.RegisterEventReceiver(isMinuteChanged, p.onClockEvent)
 	if err != nil {
-		fmt.Printf("%T unable to register for clock events, so offline alerts will only follow changes: %v\n", p, err)
+		p.log.Error("unable to register for clock events, so offline alerts will only follow changes", "error", err)
 
 		return
 	}
@@ -137,7 +141,7 @@ func (p *plugin) startSwitch(handle *SwitchHandle, saved config.SwitchStateV1) {
 		handle.name, device.ISwitchType, handle.name,
 		func() (any, error) { return s.getStub(p.container), nil })
 	if err != nil {
-		fmt.Printf("%T unable to register the fake switch %q: %v\n", p, handle.name, err)
+		p.log.Error("unable to register the fake switch", "name", handle.name, "error", err)
 		return
 	}
 
@@ -148,7 +152,7 @@ func (p *plugin) startSwitch(handle *SwitchHandle, saved config.SwitchStateV1) {
 
 	event := spicommon.StubAvailableEvent[device.ISwitch]{EntityEvent: s.entityEvent(), EntityStub: s.getStub(p.container)}
 	if err := handle.stub.Provide(p.container, event); err != nil {
-		fmt.Printf("%T %v\n", p, err)
+		p.log.Error("unable to provide the stub", "error", err)
 	}
 }
 
@@ -160,7 +164,7 @@ func (p *plugin) startThermometer(handle *ThermometerHandle, saved config.Thermo
 		handle.name, thermometerType, handle.name,
 		func() (any, error) { return t.getStub(p.container), nil })
 	if err != nil {
-		fmt.Printf("%T unable to register the fake thermometer %q: %v\n", p, handle.name, err)
+		p.log.Error("unable to register the fake thermometer", "name", handle.name, "error", err)
 		return
 	}
 
@@ -173,7 +177,7 @@ func (p *plugin) startThermometer(handle *ThermometerHandle, saved config.Thermo
 		EntityStub:  t.getStub(p.container),
 	}
 	if err := handle.stub.Provide(p.container, event); err != nil {
-		fmt.Printf("%T %v\n", p, err)
+		p.log.Error("unable to provide the stub", "error", err)
 	}
 }
 
@@ -185,7 +189,7 @@ func (p *plugin) startDoorSensor(handle *DoorSensorHandle, saved config.DoorSens
 		handle.name, device.IDoorSensorType, handle.name,
 		func() (any, error) { return d.getStub(p.container), nil })
 	if err != nil {
-		fmt.Printf("%T unable to register the fake door sensor %q: %v\n", p, handle.name, err)
+		p.log.Error("unable to register the fake door sensor", "name", handle.name, "error", err)
 		return
 	}
 
@@ -196,7 +200,7 @@ func (p *plugin) startDoorSensor(handle *DoorSensorHandle, saved config.DoorSens
 
 	event := spicommon.StubAvailableEvent[device.IDoorSensor]{EntityEvent: d.entityEvent(), EntityStub: d.getStub(p.container)}
 	if err := handle.stub.Provide(p.container, event); err != nil {
-		fmt.Printf("%T %v\n", p, err)
+		p.log.Error("unable to provide the stub", "error", err)
 	}
 }
 
@@ -277,12 +281,12 @@ func (p *plugin) checkOfflineAlerts() {
 // checkOffline raises, escalates or clears one fake's alert about being offline. Runs on the plugin goroutine.
 func (p *plugin) checkOffline(watch *alert.OfflineWatch, connectivity environment.Connectivity, offlineSince time.Time) {
 	if err := watch.Check(p.container, connectivity, offlineSince, p.now()); err != nil {
-		fmt.Printf("%T unable to update an offline alert: %v\n", p, err)
+		p.log.Error("unable to update an offline alert", "error", err)
 	}
 }
 
 func (p *plugin) Stop() chan func() {
-	fmt.Printf("%T Stopping...\n", p)
+	p.log.Info("stopping")
 
 	if p.cancelReporting != nil {
 		p.cancelReporting()
@@ -293,7 +297,7 @@ func (p *plugin) Stop() chan func() {
 		p.clockReceiverRegistered = false
 
 		if err := p.container.DeregisterEventReceiver(p.clockReceiver); err != nil {
-			fmt.Printf("%T unable to deregister the clock event receiver: %v\n", p, err)
+			p.log.Error("unable to deregister the clock event receiver", "error", err)
 		}
 	}
 
@@ -312,7 +316,7 @@ func (p *plugin) Stop() chan func() {
 		switchHandles[s.name].stub.Withdraw()
 
 		if err := p.container.DeregisterEntity(s.id); err != nil {
-			fmt.Printf("%T unable to deregister the fake switch %q: %v\n", p, s.name, err)
+			p.log.Error("unable to deregister the fake switch", "name", s.name, "error", err)
 		}
 
 		s.closeStub()
@@ -322,7 +326,7 @@ func (p *plugin) Stop() chan func() {
 		thermometerHandles[t.name].stub.Withdraw()
 
 		if err := p.container.DeregisterEntity(t.id); err != nil {
-			fmt.Printf("%T unable to deregister the fake thermometer %q: %v\n", p, t.name, err)
+			p.log.Error("unable to deregister the fake thermometer", "name", t.name, "error", err)
 		}
 
 		t.closeStub()
@@ -337,7 +341,7 @@ func (p *plugin) Stop() chan func() {
 		doorHandles[d.name].stub.Withdraw()
 
 		if err := p.container.DeregisterEntity(d.id); err != nil {
-			fmt.Printf("%T unable to deregister the fake door sensor %q: %v\n", p, d.name, err)
+			p.log.Error("unable to deregister the fake door sensor", "name", d.name, "error", err)
 		}
 
 		d.closeStub()
@@ -353,7 +357,7 @@ func (p *plugin) Stop() chan func() {
 		buttonHandles[b.name].entityId.Store(nil)
 
 		if err := p.container.DeregisterEntity(b.id); err != nil {
-			fmt.Printf("%T unable to deregister the fake button %q: %v\n", p, b.name, err)
+			p.log.Error("unable to deregister the fake button", "name", b.name, "error", err)
 		}
 
 		b.closeStub()
@@ -380,7 +384,7 @@ func (p *plugin) Stop() chan func() {
 
 func (p *plugin) broadcast(id string, event any) {
 	if err := p.container.BroadcastEvent(id, event); err != nil {
-		fmt.Printf("%T unable to broadcast %T for %s: %v\n", p, event, id, err)
+		p.log.Error("unable to broadcast", "type", fmt.Sprintf("%T", event), "id", id, "error", err)
 	}
 }
 
@@ -510,7 +514,7 @@ func (p *plugin) persist() {
 	}
 
 	if err := p.container.SaveConfig(persisted); err != nil {
-		fmt.Printf("%T unable to keep the fakes: %v\n", p, err)
+		p.log.Error("unable to keep the fakes", "error", err)
 	}
 }
 

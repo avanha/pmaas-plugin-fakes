@@ -4,8 +4,10 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"github.com/avanha/pmaas-spi/logging"
 	"html/template"
 	"io"
+	"log/slog"
 	"net/http"
 	"reflect"
 	"time"
@@ -30,6 +32,7 @@ var devicesTemplate = spi.TemplateInfo{
 
 // Handler owns the plugin's HTTP surface: the page that shows the fakes, and the route that changes them.
 type Handler struct {
+	log       *slog.Logger
 	container spi.IPMAASContainer
 	store     common.FakeStore
 }
@@ -40,6 +43,7 @@ func NewHandler() *Handler {
 
 func (h *Handler) Init(container spi.IPMAASContainer, store common.FakeStore) {
 	h.container = container
+	h.log = logging.For(container, "http")
 	h.store = store
 
 	container.ProvideContentFS(&contentFS, "content")
@@ -61,7 +65,7 @@ func (h *Handler) handleHttpListRequest(w http.ResponseWriter, r *http.Request) 
 	fakes, err := h.store.GetFakes()
 
 	if err != nil {
-		fmt.Printf("fakes.http handleHttpListRequest: unable to retrieve the fakes: %v\n", err)
+		h.log.Error("unable to retrieve the fakes", "error", err)
 		fakes = data.Fakes{}
 	}
 
@@ -100,7 +104,7 @@ func (h *Handler) handleHttpControlRequest(_ http.ResponseWriter, r *http.Reques
 			return nil, refused
 		}
 
-		fmt.Printf("fakes.http: unable to do %q to %q: %v\n", body.Action, body.Name, err)
+		h.log.Error("unable to do", "action", body.Action, "name", body.Name, "error", err)
 
 		return nil, errors.New("unable to do that")
 	}
