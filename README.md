@@ -59,6 +59,17 @@ conf.AddDoorSensor("Garage door").AlertWhenOffline(alert.WhenOffline(5*time.Minu
 The alert is raised once the device has been offline for that long, and cleared when it is back. With no severity it is a
 warning, and a time of zero is as soon as it is noticed.
 
+## A fake button
+
+```go
+button := conf.AddButton("Couch button") // a device.IButton, with an EntityId() for trigger.ButtonPressed
+```
+
+A button that is pressed from the page: single, double, triple or long. PMAAS sees each press as it does a real button's, a
+`device.ButtonPressedEvent` with the count, so an event automation can wait for it (`trigger.ButtonPressed(button,
+device.PressDouble)` in `pmaas-automations`) and be tried without the hardware. Its entity ID is known once the plugin has
+started. Nothing about it is kept across a restart.
+
 ## A fake host
 
 ```go
