@@ -235,7 +235,7 @@ func TestTemplate_AThermometerShowsItsReadingAndControls(t *testing.T) {
 	out := strings.Join(strings.Fields(render(t, data.Fakes{Thermometers: []data.Thermometer{thermometer("Room")}})), " ")
 
 	for _, want := range []string{
-		`fake-device fake-thermometer" data-name="Room"`, `<span class="kind">thermometer</span>`, "78.1°F (25.6°C)", "3m ago",
+		`fake-device fake-thermometer" data-name="Room"`, `<span class="kind">thermometer</span>`, "78.10°F (25.60°C)", "3m ago",
 		`class="temperature" type="number" step="0.1" min="-100" max="250" value="78.1" >`,
 		`data-action="set-temperature" >`, `data-action="adjust-temperature" data-delta="-1" >`,
 		`data-action="adjust-temperature" data-delta="1" >`, `data-action="stop-reporting"`,

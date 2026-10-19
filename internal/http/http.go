@@ -23,6 +23,7 @@ var devicesTemplate = spi.TemplateInfo{
 	Name: "fakes_devices",
 	FuncMap: template.FuncMap{
 		"RelativeTime": format.Ago,
+		"Temperature":  format.Temperature,
 	},
 	Paths:   []string{"templates/fakes_devices.htmlt"},
 	Styles:  []string{"css/fakes_devices.css"},

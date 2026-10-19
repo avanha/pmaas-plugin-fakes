@@ -63,7 +63,7 @@
                     <span class="name">{{.Name | html}}</span>
                     <span class="kind">thermometer</span>
                     {{if .HasData}}
-                        <span class="reading">{{printf "%.1f" .Fahrenheit}}°F ({{printf "%.1f" .Celsius}}°C)</span>
+                        <span class="reading">{{Temperature .Fahrenheit}}°F ({{Temperature .Celsius}}°C)</span>
                     {{else}}
                         <span class="reading">no reading</span>
                     {{end}}
