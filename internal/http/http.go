@@ -4,17 +4,16 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"github.com/avanha/pmaas-plugin-fakes/data"
+	"github.com/avanha/pmaas-plugin-fakes/internal/common"
+	"github.com/avanha/pmaas-spi"
+	"github.com/avanha/pmaas-spi/format"
 	"github.com/avanha/pmaas-spi/logging"
 	"html/template"
 	"io"
 	"log/slog"
 	"net/http"
 	"reflect"
-	"time"
-
-	"github.com/avanha/pmaas-plugin-fakes/data"
-	"github.com/avanha/pmaas-plugin-fakes/internal/common"
-	"github.com/avanha/pmaas-spi"
 )
 
 //go:embed content/static content/templates
@@ -23,7 +22,7 @@ var contentFS embed.FS
 var devicesTemplate = spi.TemplateInfo{
 	Name: "fakes_devices",
 	FuncMap: template.FuncMap{
-		"RelativeTime": relativeTime,
+		"RelativeTime": format.Ago,
 	},
 	Paths:   []string{"templates/fakes_devices.htmlt"},
 	Styles:  []string{"css/fakes_devices.css"},
@@ -138,25 +137,4 @@ func (h *Handler) devicesRendererFactory() (spi.EntityRenderer, error) {
 		Styles:              compiledTemplate.Styles,
 		Scripts:             compiledTemplate.Scripts,
 	}, nil
-}
-
-// relativeTime says how long ago a time was, in its two most significant units: "5m ago", "2h 5m ago",
-// "3d 4h ago". A time that is zero reads as "never".
-func relativeTime(t time.Time) string {
-	if t.IsZero() {
-		return "never"
-	}
-
-	elapsed := time.Since(t).Truncate(time.Minute)
-
-	switch {
-	case elapsed < time.Minute:
-		return "just now"
-	case elapsed < time.Hour:
-		return fmt.Sprintf("%dm ago", int(elapsed.Minutes()))
-	case elapsed < 24*time.Hour:
-		return fmt.Sprintf("%dh %dm ago", int(elapsed.Hours()), int(elapsed.Minutes())%60)
-	default:
-		return fmt.Sprintf("%dd %dh ago", int(elapsed.Hours())/24, int(elapsed.Hours())%24)
-	}
 }

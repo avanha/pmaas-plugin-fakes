@@ -225,23 +225,6 @@ func TestControlRequest(t *testing.T) {
 	})
 }
 
-func TestRelativeTime(t *testing.T) {
-	for _, c := range []struct {
-		t    time.Time
-		want string
-	}{
-		{time.Time{}, "never"},
-		{time.Now().Add(-10 * time.Second), "just now"},
-		{time.Now().Add(-5*time.Minute - 20*time.Second), "5m ago"},
-		{time.Now().Add(-2*time.Hour - 5*time.Minute), "2h 5m ago"},
-		{time.Now().Add(-3*24*time.Hour - 4*time.Hour - time.Minute), "3d 4h ago"},
-	} {
-		if got := relativeTime(c.t); got != c.want {
-			t.Errorf("%v: got %q, want %q", c.t, got, c.want)
-		}
-	}
-}
-
 func thermometer(name string) data.Thermometer {
 	return data.Thermometer{
 		Name: name, HasData: true, Fahrenheit: 78.1, Celsius: 25.6, Reported: time.Now().Add(-3 * time.Minute),
